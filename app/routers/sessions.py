@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 
 from app.db.engine import get_session
-from app.models import SessionDB, SessionStateDB, EventDB, utcnow
+from app.models import SessionDB, SessionStateDB, EventDB, utcnow, CommandDB
 
 router = APIRouter(tags=["sessions"])
 
@@ -17,8 +17,6 @@ router = APIRouter(tags=["sessions"])
 def generate_pairing_code() -> str:
     # krátky code, ktorý môžeš zobraziť na TV / v mobile
     return secrets.token_urlsafe(6)[:8].upper()
-
-
 @router.post("/sessions")
 def create_session(db: Session = Depends(get_session)):
     pairing_code = generate_pairing_code()
@@ -43,6 +41,86 @@ def create_session(db: Session = Depends(get_session)):
     db.commit()
 
     return {"session_id": str(s.id), "pairing_code": s.pairing_code}
+
+
+
+@router.post("/sessions/{session_id}/commands/switch-channel")
+def command_switch_channel(
+    session_id: UUID,
+    channel: int = Query(ge=1, le=9999),
+    db: Session = Depends(get_session),
+):
+    s = db.get(SessionDB, session_id)
+    if not s:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    cmd = CommandDB(
+        session_id=session_id,
+        type="switch_channel",
+        payload={"channel": channel},
+        status="pending",
+    )
+    db.add(cmd)
+    db.commit()
+    db.refresh(cmd)
+
+    return {"command_id": cmd.id, "status": cmd.status, "payload": cmd.payload}
+
+@router.get("/sessions/{session_id}/commands/pull")
+def pull_commands(
+    session_id: UUID,
+    after_id: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=200),
+    db: Session = Depends(get_session),
+):
+    s = db.get(SessionDB, session_id)
+    if not s:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    stmt = (
+        select(CommandDB)
+        .where(CommandDB.session_id == session_id, CommandDB.id > after_id)
+        .order_by(CommandDB.id.asc())
+        .limit(limit)
+    )
+    cmds = db.exec(stmt).all()
+
+    return [
+        {
+            "id": c.id,
+            "type": c.type,
+            "payload": c.payload,
+            "status": c.status,
+            "created_at": c.created_at,
+        }
+        for c in cmds
+    ]
+
+@router.post("/sessions/{session_id}/commands/{command_id}/ack")
+def ack_command(
+    session_id: UUID,
+    command_id: int,
+    body: Dict[str, Any],
+    db: Session = Depends(get_session),
+):
+    cmd = db.get(CommandDB, command_id)
+    if not cmd or cmd.session_id != session_id:
+        raise HTTPException(status_code=404, detail="Command not found")
+
+    status = body.get("status")  # "done" | "failed"
+    if status not in ("done", "failed"):
+        raise HTTPException(status_code=400, detail="status must be 'done' or 'failed'")
+
+    cmd.status = status
+    cmd.processed_at = utcnow()
+    cmd.result = body.get("result", {})
+
+    db.add(cmd)
+    db.commit()
+
+    return {"ok": True}
+
+
 
 
 @router.get("/sessions/by-code/{pairing_code}")

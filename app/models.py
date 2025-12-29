@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Literal
 from uuid import UUID, uuid4
 
 from sqlmodel import SQLModel, Field, Column
@@ -10,6 +10,20 @@ from sqlalchemy import JSON
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+class CommandDB(SQLModel, table=True):
+    __tablename__ = "commands"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    session_id: UUID = Field(foreign_key="sessions.id", index=True)
+
+    type: str = Field(index=True)  # "switch_channel"
+    payload: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+
+    status: str = Field(default="pending", index=True)  # pending | done | failed
+    created_at: datetime = Field(default_factory=utcnow)
+    processed_at: Optional[datetime] = None
+    result: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
 
 
 class SessionDB(SQLModel, table=True):

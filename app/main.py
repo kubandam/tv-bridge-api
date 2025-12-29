@@ -15,8 +15,15 @@ def on_startup():
 
 
 def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
-    if not x_api_key or x_api_key != settings.api_key:
+    if not settings.api_key:
+        raise HTTPException(status_code=500, detail="API_KEY not configured on server")
+
+    if not x_api_key:
+        raise HTTPException(status_code=401, detail="Missing API key")
+
+    if x_api_key != settings.api_key:
         raise HTTPException(status_code=401, detail="Invalid API key")
+
 
 
 @app.get("/health")
