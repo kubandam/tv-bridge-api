@@ -58,3 +58,62 @@ class EventDB(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
     payload: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+
+
+# -----------------------------
+# New simplified (device-based) tables
+# -----------------------------
+
+class DeviceCommandDB(SQLModel, table=True):
+    """
+    Commands addressed to a single logical device (today: 1 mobile app).
+    This avoids the session_id/pairing flow while still supporting command polling.
+    """
+
+    __tablename__ = "device_commands"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    device_id: str = Field(index=True)
+
+    type: str = Field(index=True)  # "switch_channel"
+    payload: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+
+    status: str = Field(default="pending", index=True)  # pending | done | failed
+    created_at: datetime = Field(default_factory=utcnow)
+    processed_at: Optional[datetime] = None
+    result: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+
+
+class AdResultDB(SQLModel, table=True):
+    """
+    High-frequency ad detection results from Raspberry/AI.
+    We keep only the last N (default 100) per device_id.
+    """
+
+    __tablename__ = "ad_results"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    device_id: str = Field(index=True)
+
+    is_ad: bool = Field(index=True)
+    confidence: Optional[float] = Field(default=None)
+
+    # When the frame was captured on-device (optional) vs when server received it (created_at).
+    captured_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+
+    payload: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+
+
+class AdStateDB(SQLModel, table=True):
+    """
+    Current ad/non-ad state derived from the latest AdResultDB for a device.
+    """
+
+    __tablename__ = "ad_state"
+
+    device_id: str = Field(primary_key=True)
+    ad_active: bool = False
+    ad_since: Optional[datetime] = None
+    last_result_id: int = 0
+    updated_at: datetime = Field(default_factory=utcnow)

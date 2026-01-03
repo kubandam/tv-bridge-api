@@ -4,7 +4,7 @@ from sqlmodel import Session
 
 from app.db.engine import create_db_and_tables, get_session
 from app.settings import settings
-from app.routers.sessions import router as sessions_router
+from app.routers.device import router as device_router
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ def health():
 
 # Routers
 app.include_router(
-    sessions_router,
+    device_router,
     prefix="/v1",
     dependencies=[Depends(require_api_key)],
 )

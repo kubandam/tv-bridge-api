@@ -8,5 +8,7 @@ class Settings(BaseSettings):
 
     database_url: str
     api_key: str
+    # Optional: if clients don't send X-Device-Id header, server can fall back to this
+    default_device_id: str | None = None
 
 settings = Settings()
