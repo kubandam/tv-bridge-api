@@ -475,4 +475,4 @@ def monitor_dashboard(
 </body>
 </html>
 """
-    return html
+    return HTMLResponse(content=html)
