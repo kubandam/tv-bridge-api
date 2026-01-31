@@ -142,7 +142,7 @@ def monitor_dashboard(
             <body style="font-family: sans-serif; background: #1a1a2e; color: #eee; padding: 50px; text-align: center;">
                 <h1 style="color: #ff6b6b;">🔒 API Key Required</h1>
                 <p>Add <code>?api_key=YOUR_KEY</code> to the URL to access the dashboard.</p>
-                <p style="color: #888; margin-top: 20px;">Example: /v1/monitor?api_key=xxx</p>
+                <p style="color: #888; margin-top: 20px;">Example: /monitor?api_key=xxx</p>
             </body>
             </html>
             """,
@@ -166,6 +166,7 @@ def monitor_dashboard(
         }}
         h1 {{ color: #FFD33D; margin-bottom: 20px; }}
         h2 {{ color: #888; font-size: 14px; text-transform: uppercase; margin: 20px 0 10px; }}
+        .main-grid {{ display: grid; grid-template-columns: 400px 1fr; gap: 20px; }}
         .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }}
         .card {{
             background: #16213e;
@@ -205,7 +206,7 @@ def monitor_dashboard(
         .stat-value {{ font-weight: 600; }}
         .stat-value.highlight {{ color: #FFD33D; }}
         .log-list {{
-            max-height: 400px;
+            max-height: 300px;
             overflow-y: auto;
             font-family: 'Monaco', 'Menlo', monospace;
             font-size: 12px;
@@ -217,8 +218,8 @@ def monitor_dashboard(
             gap: 10px;
         }}
         .log-entry:hover {{ background: #1f2f4f; }}
-        .log-time {{ color: #666; min-width: 80px; }}
-        .log-icon {{ min-width: 24px; }}
+        .log-time {{ color: #666; min-width: 70px; }}
+        .log-icon {{ min-width: 20px; }}
         .log-message {{ flex: 1; word-break: break-word; }}
         .log-entry.ad {{ background: rgba(255, 107, 107, 0.1); }}
         .log-entry.no-ad {{ background: rgba(81, 207, 102, 0.05); }}
@@ -272,6 +273,66 @@ def monitor_dashboard(
             margin-bottom: 20px;
             border-radius: 8px;
         }}
+        .live-image-container {{
+            position: relative;
+            background: #0f3460;
+            border-radius: 8px;
+            overflow: hidden;
+            min-height: 240px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }}
+        .live-image {{
+            max-width: 100%;
+            max-height: 360px;
+            display: block;
+        }}
+        .live-image-overlay {{
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 10px;
+            background: linear-gradient(transparent, rgba(0,0,0,0.8));
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }}
+        .live-badge {{
+            background: #ff6b6b;
+            color: white;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            animation: pulse 1s infinite;
+        }}
+        .live-badge.no-ad {{
+            background: #51cf66;
+        }}
+        .no-image {{
+            color: #666;
+            text-align: center;
+            padding: 40px;
+        }}
+        .confidence-bar {{
+            height: 4px;
+            background: #0f3460;
+            border-radius: 2px;
+            margin-top: 8px;
+            overflow: hidden;
+        }}
+        .confidence-fill {{
+            height: 100%;
+            transition: width 0.3s ease;
+        }}
+        .confidence-fill.ad {{ background: #ff6b6b; }}
+        .confidence-fill.no-ad {{ background: #51cf66; }}
+        @media (max-width: 900px) {{
+            .main-grid {{ grid-template-columns: 1fr; }}
+            .stats-grid {{ grid-template-columns: repeat(3, 1fr); }}
+        }}
     </style>
 </head>
 <body>
@@ -293,71 +354,93 @@ def monitor_dashboard(
         </div>
         <div class="stat-box">
             <div class="number" id="stat-pending">-</div>
-            <div class="label">Commands Pending</div>
+            <div class="label">Pending</div>
         </div>
         <div class="stat-box">
             <div class="number" id="stat-done">-</div>
-            <div class="label">Commands Done</div>
+            <div class="label">Done</div>
         </div>
         <div class="stat-box">
             <div class="number" id="stat-failed">-</div>
-            <div class="label">Commands Failed</div>
+            <div class="label">Failed</div>
         </div>
     </div>
 
-    <div class="grid">
-        <div class="card">
-            <div class="card-title">
-                <span class="status-dot" id="ad-status-dot"></span>
-                Current State
+    <div class="main-grid">
+        <div>
+            <div class="card">
+                <div class="card-title">📷 Live TV Feed</div>
+                <div class="live-image-container" id="live-container">
+                    <div class="no-image" id="no-image">
+                        <div style="font-size: 48px; margin-bottom: 10px;">📺</div>
+                        <div>Waiting for Raspberry Pi...</div>
+                        <div style="font-size: 11px; margin-top: 5px;">No image received yet</div>
+                    </div>
+                    <img id="live-image" class="live-image" style="display: none;" alt="Live TV">
+                    <div class="live-image-overlay" id="live-overlay" style="display: none;">
+                        <span class="live-badge" id="live-badge">LIVE</span>
+                        <span id="live-confidence" style="font-size: 12px;"></span>
+                    </div>
+                </div>
+                <div class="confidence-bar">
+                    <div class="confidence-fill" id="confidence-fill" style="width: 0%;"></div>
+                </div>
+                <div style="margin-top: 10px; font-size: 12px; color: #888;" id="image-timestamp">-</div>
             </div>
-            <div class="stat-row">
-                <span class="stat-label">Device ID</span>
-                <span class="stat-value">{device_id}</span>
+
+            <div class="card" style="margin-top: 20px;">
+                <div class="card-title">
+                    <span class="status-dot" id="ad-status-dot"></span>
+                    Current State
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Device ID</span>
+                    <span class="stat-value">{device_id}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Ad Active</span>
+                    <span class="stat-value" id="ad-active">-</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Ad Since</span>
+                    <span class="stat-value" id="ad-since">-</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Last Update</span>
+                    <span class="stat-value" id="state-updated">-</span>
+                </div>
             </div>
-            <div class="stat-row">
-                <span class="stat-label">Ad Active</span>
-                <span class="stat-value" id="ad-active">-</span>
-            </div>
-            <div class="stat-row">
-                <span class="stat-label">Ad Since</span>
-                <span class="stat-value" id="ad-since">-</span>
-            </div>
-            <div class="stat-row">
-                <span class="stat-label">Last Update</span>
-                <span class="stat-value" id="state-updated">-</span>
+
+            <div class="card" style="margin-top: 20px;">
+                <div class="card-title">⚙️ Configuration</div>
+                <div class="stat-row">
+                    <span class="stat-label">Fallback Channel</span>
+                    <span class="stat-value config-value" id="fallback-channel">-</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Original Channel</span>
+                    <span class="stat-value config-value" id="original-channel">-</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Auto-Switch</span>
+                    <span class="stat-value" id="auto-switch">-</span>
+                </div>
             </div>
         </div>
 
-        <div class="card">
-            <div class="card-title">⚙️ Configuration</div>
-            <div class="stat-row">
-                <span class="stat-label">Fallback Channel</span>
-                <span class="stat-value config-value" id="fallback-channel">-</span>
+        <div>
+            <div class="card">
+                <div class="card-title">📡 Raspberry Pi → API (Ad Results)</div>
+                <div class="log-list" id="results-log">
+                    <div class="log-entry">Loading...</div>
+                </div>
             </div>
-            <div class="stat-row">
-                <span class="stat-label">Original Channel</span>
-                <span class="stat-value config-value" id="original-channel">-</span>
-            </div>
-            <div class="stat-row">
-                <span class="stat-label">Auto-Switch</span>
-                <span class="stat-value" id="auto-switch">-</span>
-            </div>
-        </div>
-    </div>
 
-    <div class="grid" style="margin-top: 20px;">
-        <div class="card">
-            <div class="card-title">📡 Raspberry Pi → API (Ad Results)</div>
-            <div class="log-list" id="results-log">
-                <div class="log-entry">Loading...</div>
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="card-title">📱 API → Mobile App (Commands)</div>
-            <div class="log-list" id="commands-log">
-                <div class="log-entry">Loading...</div>
+            <div class="card" style="margin-top: 20px;">
+                <div class="card-title">📱 API → Mobile App (Commands)</div>
+                <div class="log-list" id="commands-log">
+                    <div class="log-entry">Loading...</div>
+                </div>
             </div>
         </div>
     </div>
@@ -365,19 +448,12 @@ def monitor_dashboard(
     <script>
         const DEVICE_ID = '{device_id}';
         const API_KEY = '{api_key}';
-        let lastResultId = 0;
-        let lastCommandId = 0;
+        let imageUpdateCounter = 0;
 
         function formatTime(isoString) {{
             if (!isoString) return '-';
             const d = new Date(isoString);
             return d.toLocaleTimeString('sk-SK', {{ hour: '2-digit', minute: '2-digit', second: '2-digit' }});
-        }}
-
-        function formatTimeFull(isoString) {{
-            if (!isoString) return '-';
-            const d = new Date(isoString);
-            return d.toLocaleString('sk-SK');
         }}
 
         function timeSince(isoString) {{
@@ -405,6 +481,48 @@ def monitor_dashboard(
                 document.getElementById('refresh-status').textContent = 'Error: ' + e.message;
                 document.getElementById('error-banner').textContent = 'Failed to fetch data: ' + e.message;
                 document.getElementById('error-banner').style.display = 'block';
+            }}
+        }}
+
+        async function fetchImage() {{
+            try {{
+                const res = await fetch('/v1/live-image?device_id=' + DEVICE_ID, {{
+                    headers: {{ 'X-API-Key': API_KEY, 'X-Device-Id': DEVICE_ID }}
+                }});
+                if (!res.ok) return;
+                const data = await res.json();
+
+                if (data.has_image && data.image_base64) {{
+                    const img = document.getElementById('live-image');
+                    const noImage = document.getElementById('no-image');
+                    const overlay = document.getElementById('live-overlay');
+                    const badge = document.getElementById('live-badge');
+                    const confText = document.getElementById('live-confidence');
+                    const confFill = document.getElementById('confidence-fill');
+                    const timestamp = document.getElementById('image-timestamp');
+
+                    img.src = 'data:image/jpeg;base64,' + data.image_base64;
+                    img.style.display = 'block';
+                    noImage.style.display = 'none';
+                    overlay.style.display = 'flex';
+
+                    if (data.is_ad) {{
+                        badge.textContent = '🚨 AD DETECTED';
+                        badge.className = 'live-badge';
+                    }} else {{
+                        badge.textContent = '✅ NO AD';
+                        badge.className = 'live-badge no-ad';
+                    }}
+
+                    const conf = data.confidence ? (data.confidence * 100).toFixed(0) : 0;
+                    confText.textContent = conf + '% confidence';
+                    confFill.style.width = conf + '%';
+                    confFill.className = 'confidence-fill ' + (data.is_ad ? 'ad' : 'no-ad');
+
+                    timestamp.textContent = 'Captured: ' + timeSince(data.timestamp);
+                }}
+            }} catch (e) {{
+                console.error('Image fetch error:', e);
             }}
         }}
 
@@ -438,7 +556,7 @@ def monitor_dashboard(
                     <span class="log-time">${{formatTime(r.created_at)}}</span>
                     <span class="log-icon">${{r.is_ad ? '🚨' : '✅'}}</span>
                     <span class="log-message">
-                        ${{r.is_ad ? 'AD DETECTED' : 'No ad'}}
+                        ${{r.is_ad ? 'AD' : 'OK'}}
                         ${{r.confidence ? '(' + (r.confidence * 100).toFixed(0) + '%)' : ''}}
                         <span style="color:#666">#${{r.id}}</span>
                     </span>
@@ -456,10 +574,9 @@ def monitor_dashboard(
                         '⏳'
                     }}</span>
                     <span class="log-message">
-                        ${{c.type === 'switch_channel' ? 'Switch to CH ' + c.payload.channel : c.type}}
+                        ${{c.type === 'switch_channel' ? 'CH ' + c.payload.channel : c.type}}
                         ${{c.payload.reason ? '(' + c.payload.reason + ')' : ''}}
-                        <span style="color:#666">#${{c.id}} [${{c.status}}]</span>
-                        ${{c.processed_at ? '<br><span style="color:#888">Processed: ' + timeSince(c.processed_at) + '</span>' : ''}}
+                        <span style="color:#666">[${{c.status}}]</span>
                     </span>
                 </div>
             `).join('') || '<div class="log-entry">No commands yet</div>';
@@ -468,9 +585,12 @@ def monitor_dashboard(
 
         // Initial fetch
         fetchData();
+        fetchImage();
 
-        // Refresh every 2 seconds
+        // Refresh data every 2 seconds
         setInterval(fetchData, 2000);
+        // Refresh image every 2 seconds
+        setInterval(fetchImage, 2000);
     </script>
 </body>
 </html>

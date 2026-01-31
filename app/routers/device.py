@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import base64
 from datetime import datetime
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 from sqlalchemy import delete
@@ -13,6 +15,10 @@ from app.models import AdResultDB, AdStateDB, DeviceCommandDB, DeviceConfigDB, u
 from app.settings import settings
 
 router = APIRouter(tags=["device"])
+
+# In-memory storage for latest images per device (not persisted)
+# Format: { "device_id": {"image_base64": "...", "timestamp": datetime, "is_ad": bool, "confidence": float} }
+_latest_images: Dict[str, Dict[str, Any]] = {}
 
 
 def require_device_id(x_device_id: str | None = Header(default=None)) -> str:
@@ -33,6 +39,7 @@ class AdResultIn(BaseModel):
     confidence: float | None = None
     captured_at: datetime | None = None
     payload: Dict[str, Any] = Field(default_factory=dict)
+    image_base64: str | None = None  # Optional base64 encoded JPEG for live preview
 
 
 @router.post("/ad-results")
@@ -51,6 +58,15 @@ def post_ad_result(
     - When ad ends (is_ad=False, was True) → switch back to original_channel
     """
     now = utcnow()
+
+    # Store latest image in memory (not in DB to avoid bloat)
+    if body.image_base64:
+        _latest_images[device_id] = {
+            "image_base64": body.image_base64,
+            "timestamp": now,
+            "is_ad": body.is_ad,
+            "confidence": body.confidence,
+        }
 
     row = AdResultDB(
         device_id=device_id,
@@ -357,3 +373,59 @@ def set_current_channel(
     }
 
 
+# -----------------------------
+# Live Image Endpoints
+# -----------------------------
+
+@router.get("/live-image")
+def get_live_image_info(
+    device_id: str = Depends(require_device_id),
+):
+    """
+    Get metadata about the latest captured image.
+    Returns JSON with image info and base64 data.
+    """
+    if device_id not in _latest_images:
+        return {
+            "device_id": device_id,
+            "has_image": False,
+            "image_base64": None,
+            "timestamp": None,
+            "is_ad": None,
+            "confidence": None,
+        }
+
+    img_data = _latest_images[device_id]
+    return {
+        "device_id": device_id,
+        "has_image": True,
+        "image_base64": img_data["image_base64"],
+        "timestamp": img_data["timestamp"].isoformat() if img_data["timestamp"] else None,
+        "is_ad": img_data["is_ad"],
+        "confidence": img_data["confidence"],
+    }
+
+
+@router.get("/live-image.jpg")
+def get_live_image_raw(
+    device_id: str = Query(default="tv-1"),
+):
+    """
+    Get the latest captured image as raw JPEG.
+    Use this directly in <img src="..."> tags.
+    """
+    if device_id not in _latest_images:
+        raise HTTPException(status_code=404, detail="No image available for this device")
+
+    img_data = _latest_images[device_id]
+    image_bytes = base64.b64decode(img_data["image_base64"])
+
+    return Response(
+        content=image_bytes,
+        media_type="image/jpeg",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        }
+    )
