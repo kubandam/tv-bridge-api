@@ -117,3 +117,20 @@ class AdStateDB(SQLModel, table=True):
     ad_since: Optional[datetime] = None
     last_result_id: int = 0
     updated_at: datetime = Field(default_factory=utcnow)
+
+
+class DeviceConfigDB(SQLModel, table=True):
+    """
+    Device configuration for automatic channel switching.
+    - fallback_channel: Channel to switch to when ad is detected
+    - original_channel: Channel to return to when ad ends (set by mobile app)
+    - auto_switch_enabled: Whether automatic switching is enabled
+    """
+
+    __tablename__ = "device_config"
+
+    device_id: str = Field(primary_key=True)
+    fallback_channel: Optional[int] = None  # Channel to switch to during ads
+    original_channel: Optional[int] = None  # Channel to return to after ads
+    auto_switch_enabled: bool = True  # Enable/disable auto-switching
+    updated_at: datetime = Field(default_factory=utcnow)

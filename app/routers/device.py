@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 from sqlalchemy import delete
 
 from app.db.engine import get_session
-from app.models import AdResultDB, AdStateDB, DeviceCommandDB, utcnow
+from app.models import AdResultDB, AdStateDB, DeviceCommandDB, DeviceConfigDB, utcnow
 from app.settings import settings
 
 router = APIRouter(tags=["device"])
@@ -45,6 +45,10 @@ def post_ad_result(
     """
     Raspberry sends high-frequency detection results (every 1-2s).
     We store them and guarantee max N last rows per device_id (default: 100).
+
+    Auto-switch logic:
+    - When ad starts (is_ad=True, was False) → switch to fallback_channel
+    - When ad ends (is_ad=False, was True) → switch back to original_channel
     """
     now = utcnow()
 
@@ -63,6 +67,10 @@ def post_ad_result(
     if not st:
         st = AdStateDB(device_id=device_id, ad_active=False, ad_since=None, last_result_id=0)
 
+    # Track previous state for auto-switch logic
+    was_ad_active = st.ad_active
+    switch_command = None
+
     if body.is_ad:
         if not st.ad_active:
             st.ad_active = True
@@ -74,6 +82,30 @@ def post_ad_result(
     st.last_result_id = int(row.id or st.last_result_id)
     st.updated_at = now
     db.add(st)
+
+    # Auto-switch logic: create command when ad state changes
+    config = db.get(DeviceConfigDB, device_id)
+    if config and config.auto_switch_enabled:
+        if body.is_ad and not was_ad_active:
+            # Ad just started → switch to fallback channel
+            if config.fallback_channel:
+                switch_command = DeviceCommandDB(
+                    device_id=device_id,
+                    type="switch_channel",
+                    payload={"channel": config.fallback_channel, "reason": "ad_started"},
+                    status="pending",
+                )
+                db.add(switch_command)
+        elif not body.is_ad and was_ad_active:
+            # Ad just ended → switch back to original channel
+            if config.original_channel:
+                switch_command = DeviceCommandDB(
+                    device_id=device_id,
+                    type="switch_channel",
+                    payload={"channel": config.original_channel, "reason": "ad_ended"},
+                    status="pending",
+                )
+                db.add(switch_command)
 
     # Enforce max N rows in DB (delete older than keep_last)
     old_ids_stmt = (
@@ -90,7 +122,7 @@ def post_ad_result(
     db.refresh(row)
     db.refresh(st)
 
-    return {
+    response = {
         "result_id": row.id,
         "device_id": device_id,
         "state": {
@@ -100,6 +132,16 @@ def post_ad_result(
             "updated_at": st.updated_at,
         },
     }
+
+    if switch_command:
+        db.refresh(switch_command)
+        response["auto_switch"] = {
+            "command_id": switch_command.id,
+            "channel": switch_command.payload.get("channel"),
+            "reason": switch_command.payload.get("reason"),
+        }
+
+    return response
 
 
 @router.get("/ad-state")
@@ -217,5 +259,101 @@ def ack_command(
     db.add(cmd)
     db.commit()
     return {"ok": True}
+
+
+# -----------------------------
+# Device Configuration Endpoints
+# -----------------------------
+
+class DeviceConfigIn(BaseModel):
+    fallback_channel: Optional[int] = Field(default=None, ge=1, le=9999)
+    auto_switch_enabled: Optional[bool] = None
+
+
+@router.get("/config")
+def get_device_config(
+    device_id: str = Depends(require_device_id),
+    db: Session = Depends(get_session),
+):
+    """Get device configuration for auto-switching."""
+    config = db.get(DeviceConfigDB, device_id)
+    if not config:
+        return {
+            "device_id": device_id,
+            "fallback_channel": None,
+            "original_channel": None,
+            "auto_switch_enabled": True,
+            "updated_at": None,
+        }
+    return {
+        "device_id": config.device_id,
+        "fallback_channel": config.fallback_channel,
+        "original_channel": config.original_channel,
+        "auto_switch_enabled": config.auto_switch_enabled,
+        "updated_at": config.updated_at,
+    }
+
+
+@router.put("/config")
+def update_device_config(
+    body: DeviceConfigIn,
+    device_id: str = Depends(require_device_id),
+    db: Session = Depends(get_session),
+):
+    """
+    Update device configuration.
+    - fallback_channel: Channel to switch to when ad is detected
+    - auto_switch_enabled: Enable/disable automatic channel switching
+    """
+    config = db.get(DeviceConfigDB, device_id)
+    if not config:
+        config = DeviceConfigDB(device_id=device_id)
+
+    if body.fallback_channel is not None:
+        config.fallback_channel = body.fallback_channel
+    if body.auto_switch_enabled is not None:
+        config.auto_switch_enabled = body.auto_switch_enabled
+    config.updated_at = utcnow()
+
+    db.add(config)
+    db.commit()
+    db.refresh(config)
+
+    return {
+        "device_id": config.device_id,
+        "fallback_channel": config.fallback_channel,
+        "original_channel": config.original_channel,
+        "auto_switch_enabled": config.auto_switch_enabled,
+        "updated_at": config.updated_at,
+    }
+
+
+@router.post("/config/current-channel")
+def set_current_channel(
+    channel: int = Query(ge=1, le=9999),
+    device_id: str = Depends(require_device_id),
+    db: Session = Depends(get_session),
+):
+    """
+    Mobile app reports the current channel.
+    This sets original_channel so API knows where to return after ads.
+    Call this whenever user manually switches channel.
+    """
+    config = db.get(DeviceConfigDB, device_id)
+    if not config:
+        config = DeviceConfigDB(device_id=device_id)
+
+    config.original_channel = channel
+    config.updated_at = utcnow()
+
+    db.add(config)
+    db.commit()
+    db.refresh(config)
+
+    return {
+        "device_id": config.device_id,
+        "original_channel": config.original_channel,
+        "updated_at": config.updated_at,
+    }
 
 
