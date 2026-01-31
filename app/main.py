@@ -5,6 +5,7 @@ from sqlmodel import Session
 from app.db.engine import create_db_and_tables, get_session
 from app.settings import settings
 from app.routers.device import router as device_router
+from app.routers.monitor import router as monitor_router, monitor_dashboard
 
 logger = logging.getLogger(__name__)
 
@@ -44,3 +45,13 @@ app.include_router(
     prefix="/v1",
     dependencies=[Depends(require_api_key)],
 )
+
+# Monitor router - data endpoint requires API key
+app.include_router(
+    monitor_router,
+    prefix="/v1",
+    dependencies=[Depends(require_api_key)],
+)
+
+# Public monitor dashboard (api_key passed as query param and validated internally)
+app.get("/monitor")(monitor_dashboard)
