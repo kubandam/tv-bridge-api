@@ -21,9 +21,12 @@ engine = create_engine(
 
 def create_db_and_tables() -> None:
     """Create database tables with retry logic for production environments."""
+    # Import all models to ensure they're registered with SQLModel metadata
+    from app import models  # noqa: F401
+
     max_retries = 5
     retry_delay = 2  # seconds
-    
+
     for attempt in range(max_retries):
         try:
             SQLModel.metadata.create_all(engine)
