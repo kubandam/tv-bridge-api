@@ -6,6 +6,7 @@ from app.db.engine import create_db_and_tables, get_session
 from app.settings import settings
 from app.routers.device import router as device_router
 from app.routers.monitor import router as monitor_router, monitor_dashboard
+from app.routers.rpi import router as rpi_router
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,13 @@ app.include_router(
 app.include_router(
     monitor_router,
     prefix="/v1",
+    dependencies=[Depends(require_api_key)],
+)
+
+# RPi control router
+app.include_router(
+    rpi_router,
+    prefix="/v1/rpi",
     dependencies=[Depends(require_api_key)],
 )
 

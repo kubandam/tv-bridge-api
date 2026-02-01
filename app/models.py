@@ -134,3 +134,59 @@ class DeviceConfigDB(SQLModel, table=True):
     original_channel: Optional[int] = None  # Channel to return to after ads
     auto_switch_enabled: bool = True  # Enable/disable auto-switching
     updated_at: datetime = Field(default_factory=utcnow)
+
+
+# -----------------------------
+# Raspberry Pi Control Tables
+# -----------------------------
+
+class RpiStatusDB(SQLModel, table=True):
+    """
+    Track Raspberry Pi status - online/offline, running components.
+    Updated via heartbeat from RPi.
+    """
+
+    __tablename__ = "rpi_status"
+
+    device_id: str = Field(primary_key=True)
+
+    # Online status (based on heartbeat)
+    is_online: bool = False
+    last_heartbeat: Optional[datetime] = None
+
+    # Component status (reported by RPi)
+    capture_running: bool = False  # FFmpeg running
+    detect_running: bool = False   # CLIP detection running
+
+    # Stats
+    frames_captured: int = 0
+    frames_processed: int = 0
+    ads_detected: int = 0
+
+    # System info
+    cpu_percent: Optional[float] = None
+    memory_percent: Optional[float] = None
+    disk_percent: Optional[float] = None
+
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+class RpiCommandDB(SQLModel, table=True):
+    """
+    Commands for Raspberry Pi control.
+    Types: start_capture, stop_capture, start_detect, stop_detect,
+           restart_all, stop_all, set_channel, set_config
+    """
+
+    __tablename__ = "rpi_commands"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    device_id: str = Field(index=True)
+
+    type: str = Field(index=True)
+    payload: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+
+    status: str = Field(default="pending", index=True)  # pending | done | failed
+    created_at: datetime = Field(default_factory=utcnow)
+    processed_at: Optional[datetime] = None
+    result: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
