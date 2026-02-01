@@ -105,6 +105,17 @@ def post_ad_result(
         if body.is_ad and not was_ad_active:
             # Ad just started → switch to fallback channel
             if config.fallback_channel:
+                # Cancel all pending commands first (they're outdated)
+                pending_stmt = select(DeviceCommandDB).where(
+                    DeviceCommandDB.device_id == device_id,
+                    DeviceCommandDB.status == "pending"
+                )
+                pending_cmds = db.exec(pending_stmt).all()
+                for cmd in pending_cmds:
+                    cmd.status = "cancelled"
+                    cmd.processed_at = now
+                    db.add(cmd)
+                
                 switch_command = DeviceCommandDB(
                     device_id=device_id,
                     type="switch_channel",
@@ -115,6 +126,17 @@ def post_ad_result(
         elif not body.is_ad and was_ad_active:
             # Ad just ended → switch back to original channel
             if config.original_channel:
+                # Cancel all pending commands first (they're outdated)
+                pending_stmt = select(DeviceCommandDB).where(
+                    DeviceCommandDB.device_id == device_id,
+                    DeviceCommandDB.status == "pending"
+                )
+                pending_cmds = db.exec(pending_stmt).all()
+                for cmd in pending_cmds:
+                    cmd.status = "cancelled"
+                    cmd.processed_at = now
+                    db.add(cmd)
+                
                 switch_command = DeviceCommandDB(
                     device_id=device_id,
                     type="switch_channel",
@@ -215,10 +237,28 @@ def command_switch_channel(
     device_id: str = Depends(require_device_id),
     db: Session = Depends(get_session),
 ):
+    """
+    Manually create a channel switch command.
+    Cancels any pending commands first to ensure only the latest command is active.
+    """
+    now = utcnow()
+    
+    # Cancel all pending commands first (they're outdated)
+    pending_stmt = select(DeviceCommandDB).where(
+        DeviceCommandDB.device_id == device_id,
+        DeviceCommandDB.status == "pending"
+    )
+    pending_cmds = db.exec(pending_stmt).all()
+    for cmd in pending_cmds:
+        cmd.status = "cancelled"
+        cmd.processed_at = now
+        db.add(cmd)
+    
+    # Create new command
     cmd = DeviceCommandDB(
         device_id=device_id,
         type="switch_channel",
-        payload={"channel": channel},
+        payload={"channel": channel, "reason": "manual"},
         status="pending",
     )
     db.add(cmd)
@@ -234,11 +274,20 @@ def pull_commands(
     device_id: str = Depends(require_device_id),
     db: Session = Depends(get_session),
 ):
+    """
+    Pull pending commands for the mobile app.
+    Returns only the LATEST pending command to ensure real-time behavior.
+    Old pending commands are automatically cancelled when a new one is created.
+    """
+    # Get only the latest pending command (real-time, not historical)
     stmt = (
         select(DeviceCommandDB)
-        .where(DeviceCommandDB.device_id == device_id, DeviceCommandDB.id > after_id)
-        .order_by(DeviceCommandDB.id.asc())
-        .limit(limit)
+        .where(
+            DeviceCommandDB.device_id == device_id,
+            DeviceCommandDB.status == "pending",
+        )
+        .order_by(DeviceCommandDB.id.desc())
+        .limit(1)  # Only the most recent pending command
     )
     cmds = db.exec(stmt).all()
     return [
