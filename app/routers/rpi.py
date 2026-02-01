@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from app.db.engine import get_session
-from app.models import RpiStatusDB, RpiCommandDB, utcnow
+from app.models import RpiStatusDB, RpiCommandDB, RpiDaemonCommandDB, RpiDaemonStatusDB, utcnow
 from app.settings import settings
 
 router = APIRouter(tags=["rpi"])
@@ -532,4 +532,180 @@ def quick_restart(
     return {
         "ok": True,
         "command_id": cmd.id,
+    }
+
+
+# -----------------------------
+# Daemon Lifecycle Management
+# -----------------------------
+
+class DaemonCommandIn(BaseModel):
+    type: str = Field(..., description="Command type: start_controller | stop_controller")
+    payload: Dict[str, Any] = Field(default_factory=dict)
+
+
+class DaemonStatusIn(BaseModel):
+    daemon_running: bool
+    controller_running: bool
+    controller_pid: Optional[int] = None
+
+
+@router.post("/daemon-commands")
+def create_daemon_command(
+    body: DaemonCommandIn,
+    device_id: str = Depends(require_device_id),
+    db: Session = Depends(get_session),
+):
+    """
+    Create a daemon command (start_controller, stop_controller).
+    Used by monitor dashboard to control controller lifecycle.
+    """
+    if body.type not in ["start_controller", "stop_controller"]:
+        raise HTTPException(status_code=400, detail=f"Invalid daemon command type: {body.type}")
+    
+    cmd = RpiDaemonCommandDB(
+        device_id=device_id,
+        type=body.type,
+        payload=body.payload,
+        status="pending",
+    )
+    db.add(cmd)
+    db.commit()
+    db.refresh(cmd)
+    
+    return {
+        "ok": True,
+        "command_id": cmd.id,
+        "type": cmd.type,
+        "device_id": device_id,
+    }
+
+
+@router.get("/daemon-commands")
+def poll_daemon_commands(
+    device_id: str = Query(...),
+    since: int = Query(default=0, description="Last command ID seen"),
+    db: Session = Depends(get_session),
+):
+    """
+    Poll for pending daemon commands (used by rpi_daemon.py).
+    Returns commands with ID > since and status=pending.
+    """
+    stmt = (
+        select(RpiDaemonCommandDB)
+        .where(RpiDaemonCommandDB.device_id == device_id)
+        .where(RpiDaemonCommandDB.id > since)
+        .where(RpiDaemonCommandDB.status == "pending")
+        .order_by(RpiDaemonCommandDB.id)
+        .limit(20)
+    )
+    
+    commands = db.exec(stmt).all()
+    
+    return {
+        "commands": [
+            {
+                "id": c.id,
+                "type": c.type,
+                "payload": c.payload,
+                "status": c.status,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            }
+            for c in commands
+        ]
+    }
+
+
+class DaemonCommandUpdate(BaseModel):
+    status: str = Field(..., description="done | failed")
+    result: Dict[str, Any] = Field(default_factory=dict)
+
+
+@router.put("/daemon-commands/{command_id}")
+def update_daemon_command(
+    command_id: int,
+    body: DaemonCommandUpdate,
+    db: Session = Depends(get_session),
+):
+    """
+    Update daemon command status (used by rpi_daemon.py to report results).
+    """
+    cmd = db.get(RpiDaemonCommandDB, command_id)
+    if not cmd:
+        raise HTTPException(status_code=404, detail="Command not found")
+    
+    if body.status not in ["done", "failed"]:
+        raise HTTPException(status_code=400, detail="Status must be 'done' or 'failed'")
+    
+    cmd.status = body.status
+    cmd.result = body.result
+    cmd.processed_at = utcnow()
+    
+    db.add(cmd)
+    db.commit()
+    db.refresh(cmd)
+    
+    return {
+        "ok": True,
+        "command_id": cmd.id,
+        "status": cmd.status,
+    }
+
+
+@router.post("/daemon-status")
+def update_daemon_status(
+    body: DaemonStatusIn,
+    device_id: str = Depends(require_device_id),
+    db: Session = Depends(get_session),
+):
+    """
+    Update daemon status (used by rpi_daemon.py to report current state).
+    """
+    status = db.get(RpiDaemonStatusDB, device_id)
+    
+    if not status:
+        status = RpiDaemonStatusDB(device_id=device_id)
+    
+    status.daemon_running = body.daemon_running
+    status.controller_running = body.controller_running
+    status.controller_pid = body.controller_pid
+    status.updated_at = utcnow()
+    
+    db.add(status)
+    db.commit()
+    db.refresh(status)
+    
+    return {
+        "ok": True,
+        "device_id": device_id,
+        "daemon_running": status.daemon_running,
+        "controller_running": status.controller_running,
+    }
+
+
+@router.get("/daemon-status")
+def get_daemon_status(
+    device_id: str = Query(...),
+    db: Session = Depends(get_session),
+):
+    """
+    Get current daemon status.
+    """
+    status = db.get(RpiDaemonStatusDB, device_id)
+    
+    if not status:
+        return {
+            "device_id": device_id,
+            "daemon_running": False,
+            "controller_running": False,
+            "controller_pid": None,
+            "updated_at": None,
+        }
+    
+    return {
+        "device_id": device_id,
+        "daemon_running": status.daemon_running,
+        "controller_running": status.controller_running,
+        "controller_pid": status.controller_pid,
+        "updated_at": status.updated_at.isoformat() if status.updated_at else None,
     }

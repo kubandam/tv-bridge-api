@@ -9,7 +9,7 @@ from sqlalchemy import delete
 from sqlmodel import Session, select, desc
 
 from app.db.engine import get_session
-from app.models import AdResultDB, AdStateDB, DeviceCommandDB, DeviceConfigDB, RpiStatusDB, RpiCommandDB, utcnow
+from app.models import AdResultDB, AdStateDB, DeviceCommandDB, DeviceConfigDB, RpiStatusDB, RpiCommandDB, RpiDaemonStatusDB, utcnow
 from app.settings import settings
 
 router = APIRouter(tags=["monitor"])
@@ -55,6 +55,17 @@ def get_monitor_data(
             "cpu_percent": rpi_status.cpu_percent,
             "memory_percent": rpi_status.memory_percent,
             "disk_percent": rpi_status.disk_percent,
+        }
+
+    # Get daemon status
+    daemon_status = db.get(RpiDaemonStatusDB, device_id)
+    daemon_data = None
+    if daemon_status:
+        daemon_data = {
+            "daemon_running": daemon_status.daemon_running,
+            "controller_running": daemon_status.controller_running,
+            "controller_pid": daemon_status.controller_pid,
+            "updated_at": daemon_status.updated_at.isoformat() if daemon_status.updated_at else None,
         }
 
     # Get current ad state
@@ -161,6 +172,7 @@ def get_monitor_data(
         "timestamp": now.isoformat(),
         "device_id": device_id,
         "rpi_status": rpi_data,
+        "daemon_status": daemon_data,
         "state": state_data,
         "config": config_data,
         "stats": {
@@ -661,6 +673,37 @@ def monitor_dashboard(
                     </div>
                 </div>
 
+                <!-- Daemon Status -->
+                <div class="card" style="margin-top: 20px;">
+                    <div class="card-header">
+                        <span class="card-title">🤖 Controller Daemon</span>
+                        <div class="status-indicator" style="display:flex;align-items:center;gap:8px;">
+                            <div class="status-dot" id="daemon-status-dot"></div>
+                            <span id="daemon-status-text">Unknown</span>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-bottom:15px;">
+                            <div>
+                                <div style="font-size:11px;color:#666;text-transform:uppercase;margin-bottom:4px;">Daemon</div>
+                                <div style="font-size:18px;font-weight:600;" id="daemon-running">-</div>
+                            </div>
+                            <div>
+                                <div style="font-size:11px;color:#666;text-transform:uppercase;margin-bottom:4px;">Controller</div>
+                                <div style="font-size:18px;font-weight:600;" id="controller-running">-</div>
+                            </div>
+                        </div>
+                        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                            <button type="button" id="start-controller-btn" class="btn" style="flex:1;min-width:120px;background:#51cf66;color:#fff;padding:10px;border:none;border-radius:4px;cursor:pointer;font-size:14px;font-weight:600;" onclick="startController()">▶ Start Controller</button>
+                            <button type="button" id="stop-controller-btn" class="btn" style="flex:1;min-width:120px;background:#ff6b6b;color:#fff;padding:10px;border:none;border-radius:4px;cursor:pointer;font-size:14px;font-weight:600;" onclick="stopController()">■ Stop Controller</button>
+                        </div>
+                        <div style="margin-top:10px;font-size:11px;color:#666;">
+                            <div>Controller PID: <span id="controller-pid">-</span></div>
+                            <div>Last update: <span id="daemon-last-update">-</span></div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- RPi Commands Log -->
                 <div class="card" style="margin-top: 20px;">
                     <div class="card-header">
@@ -875,6 +918,67 @@ def monitor_dashboard(
             }}
         }}
 
+        async function startController() {{
+            const btn = document.getElementById('start-controller-btn');
+            btn.disabled = true;
+            btn.textContent = 'Starting...';
+            try {{
+                const res = await fetch('/v1/rpi/daemon-commands', {{
+                    method: 'POST',
+                    headers: {{
+                        'Content-Type': 'application/json',
+                        'X-API-Key': API_KEY,
+                        'X-Device-Id': DEVICE_ID
+                    }},
+                    body: JSON.stringify({{ type: 'start_controller', payload: {{}} }})
+                }});
+                const data = await res.json();
+                if (data.ok) {{
+                    console.log('Start controller command sent:', data);
+                    setTimeout(fetchData, 1000);
+                }} else {{
+                    alert('Failed: ' + (data.detail || JSON.stringify(data)));
+                }}
+            }} catch (e) {{
+                console.error('Start controller error:', e);
+                alert('Failed: ' + e.message);
+            }} finally {{
+                btn.disabled = false;
+                btn.textContent = '▶ Start Controller';
+            }}
+        }}
+
+        async function stopController() {{
+            if (!confirm('Stop controller? This will stop capture and detection.')) return;
+            const btn = document.getElementById('stop-controller-btn');
+            btn.disabled = true;
+            btn.textContent = 'Stopping...';
+            try {{
+                const res = await fetch('/v1/rpi/daemon-commands', {{
+                    method: 'POST',
+                    headers: {{
+                        'Content-Type': 'application/json',
+                        'X-API-Key': API_KEY,
+                        'X-Device-Id': DEVICE_ID
+                    }},
+                    body: JSON.stringify({{ type: 'stop_controller', payload: {{}} }})
+                }});
+                const data = await res.json();
+                if (data.ok) {{
+                    console.log('Stop controller command sent:', data);
+                    setTimeout(fetchData, 1000);
+                }} else {{
+                    alert('Failed: ' + (data.detail || JSON.stringify(data)));
+                }}
+            }} catch (e) {{
+                console.error('Stop controller error:', e);
+                alert('Failed: ' + e.message);
+            }} finally {{
+                btn.disabled = false;
+                btn.textContent = '■ Stop Controller';
+            }}
+        }}
+
         function updateUI(data) {{
             // Stats
             document.getElementById('stat-results').textContent = data.stats.results_last_hour;
@@ -929,6 +1033,38 @@ def monitor_dashboard(
             document.getElementById('fallback-ch').textContent = data.config.fallback_channel || 'Not set';
             document.getElementById('original-ch').textContent = data.config.original_channel || 'Not set';
             document.getElementById('auto-switch').textContent = data.config.auto_switch_enabled ? 'Enabled' : 'Disabled';
+
+            // Daemon Status
+            const daemon = data.daemon_status;
+            const daemonDot = document.getElementById('daemon-status-dot');
+            const daemonText = document.getElementById('daemon-status-text');
+            
+            if (daemon && daemon.daemon_running) {{
+                daemonDot.className = 'status-dot online active';
+                daemonText.textContent = 'Running';
+                document.getElementById('daemon-running').textContent = 'YES';
+                document.getElementById('daemon-running').style.color = '#51cf66';
+                
+                if (daemon.controller_running) {{
+                    document.getElementById('controller-running').textContent = 'RUNNING';
+                    document.getElementById('controller-running').style.color = '#51cf66';
+                }} else {{
+                    document.getElementById('controller-running').textContent = 'STOPPED';
+                    document.getElementById('controller-running').style.color = '#666';
+                }}
+                
+                document.getElementById('controller-pid').textContent = daemon.controller_pid || '-';
+                document.getElementById('daemon-last-update').textContent = timeSince(daemon.updated_at);
+            }} else {{
+                daemonDot.className = 'status-dot offline';
+                daemonText.textContent = daemon ? 'Stopped' : 'Unknown';
+                document.getElementById('daemon-running').textContent = 'NO';
+                document.getElementById('daemon-running').style.color = '#ff6b6b';
+                document.getElementById('controller-running').textContent = '-';
+                document.getElementById('controller-running').style.color = '#666';
+                document.getElementById('controller-pid').textContent = '-';
+                document.getElementById('daemon-last-update').textContent = daemon && daemon.updated_at ? timeSince(daemon.updated_at) : 'Never';
+            }}
 
             // Results Log  - show last 20, most recent first
             document.getElementById('results-log').innerHTML = data.recent_results.slice(0, 20).map(r => `

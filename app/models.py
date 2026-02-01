@@ -190,3 +190,39 @@ class RpiCommandDB(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
     processed_at: Optional[datetime] = None
     result: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+
+
+class RpiDaemonCommandDB(SQLModel, table=True):
+    """
+    Commands for Raspberry Pi daemon (controller lifecycle).
+    Types: start_controller, stop_controller
+    """
+
+    __tablename__ = "rpi_daemon_commands"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    device_id: str = Field(index=True)
+
+    type: str = Field(index=True)  # start_controller | stop_controller
+    payload: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+
+    status: str = Field(default="pending", index=True)  # pending | done | failed
+    created_at: datetime = Field(default_factory=utcnow)
+    processed_at: Optional[datetime] = None
+    result: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+
+
+class RpiDaemonStatusDB(SQLModel, table=True):
+    """
+    Status of Raspberry Pi daemon and controller.
+    """
+
+    __tablename__ = "rpi_daemon_status"
+
+    device_id: str = Field(primary_key=True)
+    
+    daemon_running: bool = False
+    controller_running: bool = False
+    controller_pid: Optional[int] = None
+    
+    updated_at: datetime = Field(default_factory=utcnow)
