@@ -5,6 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import HTMLResponse
+from sqlalchemy import delete
 from sqlmodel import Session, select, desc
 
 from app.db.engine import get_session
@@ -173,6 +174,21 @@ def get_monitor_data(
         "recent_commands": commands_data,
         "rpi_commands": rpi_commands_data,
     }
+
+
+@router.delete("/monitor/commands")
+def clear_device_commands(
+    device_id: str = Query(default="tv-1"),
+    db: Session = Depends(get_session),
+):
+    """
+    Delete all device (mobile) commands for the given device_id.
+    Use this to clear the command queue and history (pending, done, failed).
+    """
+    result = db.exec(delete(DeviceCommandDB).where(DeviceCommandDB.device_id == device_id))
+    db.commit()
+    deleted = result.rowcount if hasattr(result, "rowcount") else 0
+    return {"ok": True, "device_id": device_id, "deleted": deleted}
 
 
 def monitor_dashboard(
@@ -670,6 +686,7 @@ def monitor_dashboard(
                 <div class="card" style="margin-top: 20px;">
                     <div class="card-header">
                         <span class="card-title">📱 Mobile Commands History (Last 10)</span>
+                        <button type="button" id="clear-commands-btn" class="btn" style="background:#ff6b6b;color:#fff;padding:6px 12px;font-size:12px;border:none;border-radius:4px;cursor:pointer;" title="Vymazať všetky príkazy pre mobil">Premazať všetky</button>
                     </div>
                     <div class="card-body">
                         <div class="log-list" id="commands-log">Loading...</div>
@@ -833,6 +850,31 @@ def monitor_dashboard(
             }}
         }}
 
+        async function clearDeviceCommands() {{
+            if (!confirm('Naozaj vymazať všetky príkazy pre mobil (pending, done, failed)?')) return;
+            const btn = document.getElementById('clear-commands-btn');
+            btn.disabled = true;
+            btn.textContent = 'Mažem...';
+            try {{
+                const res = await fetch('/v1/monitor/commands?device_id=' + DEVICE_ID, {{
+                    method: 'DELETE',
+                    headers: {{ 'X-API-Key': API_KEY }}
+                }});
+                const data = await res.json();
+                if (data.ok) {{
+                    fetchData();
+                }} else {{
+                    alert('Chyba: ' + (data.detail || JSON.stringify(data)));
+                }}
+            }} catch (e) {{
+                console.error('Clear commands error:', e);
+                alert('Chyba: ' + e.message);
+            }} finally {{
+                btn.disabled = false;
+                btn.textContent = 'Premazať všetky';
+            }}
+        }}
+
         function updateUI(data) {{
             // Stats
             document.getElementById('stat-results').textContent = data.stats.results_last_hour;
@@ -982,6 +1024,8 @@ def monitor_dashboard(
         fetchData();
         fetchImage();
         fetchImageLog();
+
+        document.getElementById('clear-commands-btn').addEventListener('click', clearDeviceCommands);
 
         // Refresh intervals
         setInterval(fetchData, 2000);
