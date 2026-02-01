@@ -564,6 +564,33 @@ def monitor_dashboard(
                     </div>
                 </div>
 
+                <!-- Phase 2: Live TV Feed - HORE vedľa controllera (hidden when capture/detect off) -->
+                <div class="card" id="phase2-live" style="margin-top:20px;display:none;">
+                    <div class="card-header">
+                        <span class="card-title">📺 Live TV Feed</span>
+                        <div class="status-indicator">
+                            <span class="status-dot active" id="live-dot" style="display:none;"></span>
+                            <span id="live-status">No feed</span>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="live-container" id="live-container">
+                            <div class="no-image" id="no-image">
+                                <div style="font-size: 36px;">📡</div>
+                                <div style="margin-top: 8px; font-size: 12px;">Waiting for frames...</div>
+                            </div>
+                            <img id="live-image" class="live-image" style="display:none;" alt="Live">
+                            <div class="live-overlay" id="live-overlay" style="display:none;">
+                                <span class="live-badge" id="live-badge">-</span>
+                                <span id="live-conf" style="font-size: 11px; color: #ccc;">-</span>
+                            </div>
+                        </div>
+                        <div class="confidence-bar">
+                            <div class="confidence-fill" id="conf-fill" style="width: 0;"></div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Phase 1: Controller Running - Capture/Detect Control (hidden when controller off) -->
                 <div class="card rpi-panel" id="phase1-controls" style="margin-top:20px;display:none;">
                     <div class="card-header">
@@ -630,33 +657,6 @@ def monitor_dashboard(
                     </div>
                 </div>
 
-                <!-- Phase 2: Live TV Feed (hidden when capture/detect off) -->
-                <div class="card" id="phase2-live" style="margin-top:20px;display:none;">
-                    <div class="card-header">
-                        <span class="card-title">📺 Live TV Feed</span>
-                        <div class="status-indicator">
-                            <span class="status-dot active" id="live-dot" style="display:none;"></span>
-                            <span id="live-status">No feed</span>
-                        </div>
-                    </div>
-                    <div class="card-body">
-                        <div class="live-container" id="live-container">
-                            <div class="no-image" id="no-image">
-                                <div style="font-size: 36px;">📡</div>
-                                <div style="margin-top: 8px; font-size: 12px;">Waiting for frames...</div>
-                            </div>
-                            <img id="live-image" class="live-image" style="display:none;" alt="Live">
-                            <div class="live-overlay" id="live-overlay" style="display:none;">
-                                <span class="live-badge" id="live-badge">-</span>
-                                <span id="live-conf" style="font-size: 11px; color: #ccc;">-</span>
-                            </div>
-                        </div>
-                        <div class="confidence-bar">
-                            <div class="confidence-fill" id="conf-fill" style="width: 0;"></div>
-                        </div>
-                    </div>
-                </div>
-
                 <!-- Phase 2: Current State (hidden when controller off) -->
                 <div class="card" id="phase2-state" style="margin-top: 20px;display:none;">
                     <div class="card-header">
@@ -692,7 +692,7 @@ def monitor_dashboard(
             </div>
 
             <div class="right-col">
-                <!-- Phase 2: Image Log (hidden when detect off) -->
+                <!-- Phase 2: Image Log - 10 posledných fotiek HORE (hidden when detect off) -->
                 <div class="card" id="phase2-images" style="display:none;">
                     <div class="card-header">
                         <span class="card-title">🖼️ Detection Log (Last 10 Images)</span>
@@ -707,7 +707,7 @@ def monitor_dashboard(
                     </div>
                 </div>
 
-                <!-- Phase 2: Ad Results Log (hidden when detect off) -->
+                <!-- Phase 2: Ad Results Log - Reklama/nie + % (hidden when detect off) -->
                 <div class="card" id="phase2-results" style="margin-top: 20px;display:none;">
                     <div class="card-header">
                         <span class="card-title">📊 Ad Detection Results</span>
