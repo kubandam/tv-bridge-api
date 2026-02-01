@@ -533,14 +533,80 @@ def monitor_dashboard(
 
         <div class="grid">
             <div class="left-col">
-                <!-- RPi Control Panel -->
-                <div class="card rpi-panel">
+                <!-- Phase 0: Daemon Control (always visible) -->
+                <div class="card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                    <div class="card-header" style="border-bottom: 1px solid rgba(255,255,255,0.2);">
+                        <span class="card-title" style="color: #fff;">🤖 System Control</span>
+                        <div class="status-indicator" style="display:flex;align-items:center;gap:8px;">
+                            <div class="status-dot" id="daemon-status-dot"></div>
+                            <span id="daemon-status-text" style="color: #fff;">Unknown</span>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-bottom:15px;">
+                            <div style="background:rgba(0,0,0,0.2);padding:12px;border-radius:8px;">
+                                <div style="font-size:11px;color:rgba(255,255,255,0.7);text-transform:uppercase;margin-bottom:4px;">Daemon</div>
+                                <div style="font-size:18px;font-weight:600;color:#fff;" id="daemon-running">-</div>
+                            </div>
+                            <div style="background:rgba(0,0,0,0.2);padding:12px;border-radius:8px;">
+                                <div style="font-size:11px;color:rgba(255,255,255,0.7);text-transform:uppercase;margin-bottom:4px;">Controller</div>
+                                <div style="font-size:18px;font-weight:600;color:#fff;" id="controller-running">-</div>
+                            </div>
+                        </div>
+                        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                            <button type="button" id="start-controller-btn" class="btn" style="flex:1;min-width:140px;background:#51cf66;color:#fff;padding:12px;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,0.2);" onclick="startController()">▶ Start Controller</button>
+                            <button type="button" id="stop-controller-btn" class="btn" style="flex:1;min-width:140px;background:#ff6b6b;color:#fff;padding:12px;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,0.2);" onclick="stopController()">■ Stop Controller</button>
+                        </div>
+                        <div style="margin-top:15px;padding:10px;background:rgba(0,0,0,0.2);border-radius:6px;font-size:11px;color:rgba(255,255,255,0.8);">
+                            <div>Controller PID: <span id="controller-pid" style="color:#fff;font-weight:600;">-</span></div>
+                            <div style="margin-top:4px;">Last update: <span id="daemon-last-update" style="color:#fff;font-weight:600;">-</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Phase 1: Controller Running - Capture/Detect Control (hidden when controller off) -->
+                <div class="card rpi-panel" id="phase1-controls" style="margin-top:20px;display:none;">
                     <div class="card-header">
-                        <span class="card-title">Raspberry Pi Control</span>
+                        <span class="card-title">📡 Capture & Detection Control</span>
                         <div class="status-indicator">
                             <span class="status-dot" id="rpi-status-dot"></span>
                             <span id="rpi-status-text">Unknown</span>
                         </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="rpi-components" style="margin-bottom:15px;">
+                            <div class="component" id="capture-status">
+                                <div>CAPTURE</div>
+                                <div id="capture-label">-</div>
+                            </div>
+                            <div class="component" id="detect-status">
+                                <div>DETECT</div>
+                                <div id="detect-label">-</div>
+                            </div>
+                        </div>
+
+                        <div style="margin-bottom:12px;padding:12px;background:#f8f9fa;border-radius:6px;border-left:4px solid #667eea;">
+                            <div style="font-size:12px;font-weight:600;margin-bottom:8px;color:#333;">Quick Actions</div>
+                            <div style="display:flex;gap:8px;margin-bottom:8px;">
+                                <button class="btn primary" style="flex:1;" onclick="sendRpiCommand('start_capture')">▶ Start Capture</button>
+                                <button class="btn primary" style="flex:1;" onclick="sendRpiCommand('start_detect')">▶ Start Detect</button>
+                            </div>
+                            <div style="display:flex;gap:8px;">
+                                <button class="btn warning" style="flex:1;" onclick="sendRpiCommand('restart_all')">🔄 Restart All</button>
+                                <button class="btn danger" style="flex:1;" onclick="sendRpiCommand('stop_all')">■ Stop All</button>
+                            </div>
+                        </div>
+
+                        <div style="font-size:11px;color:#666;">
+                            Last heartbeat: <span id="rpi-heartbeat" style="font-weight:600;">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Phase 2: System Stats (hidden when controller off) -->
+                <div class="card" id="phase2-stats" style="margin-top:20px;display:none;">
+                    <div class="card-header">
+                        <span class="card-title">📊 System Stats</span>
                     </div>
                     <div class="card-body">
                         <div class="rpi-status">
@@ -561,35 +627,13 @@ def monitor_dashboard(
                                 <div class="label">Memory %</div>
                             </div>
                         </div>
-
-                        <div class="rpi-components">
-                            <div class="component" id="capture-status">
-                                <div>CAPTURE</div>
-                                <div id="capture-label">-</div>
-                            </div>
-                            <div class="component" id="detect-status">
-                                <div>DETECT</div>
-                                <div id="detect-label">-</div>
-                            </div>
-                        </div>
-
-                        <div class="btn-group">
-                            <button class="btn primary" onclick="sendRpiCommand('start_capture')">Start Capture</button>
-                            <button class="btn primary" onclick="sendRpiCommand('start_detect')">Start Detect</button>
-                            <button class="btn warning" onclick="sendRpiCommand('restart_all')">Restart All</button>
-                            <button class="btn danger" onclick="sendRpiCommand('stop_all')">Stop All</button>
-                        </div>
-
-                        <div style="margin-top: 12px; font-size: 11px; color: #666;">
-                            Last heartbeat: <span id="rpi-heartbeat">-</span>
-                        </div>
                     </div>
                 </div>
 
-                <!-- Live TV Feed -->
-                <div class="card">
+                <!-- Phase 2: Live TV Feed (hidden when capture/detect off) -->
+                <div class="card" id="phase2-live" style="margin-top:20px;display:none;">
                     <div class="card-header">
-                        <span class="card-title">Live TV Feed</span>
+                        <span class="card-title">📺 Live TV Feed</span>
                         <div class="status-indicator">
                             <span class="status-dot active" id="live-dot" style="display:none;"></span>
                             <span id="live-status">No feed</span>
@@ -598,8 +642,8 @@ def monitor_dashboard(
                     <div class="card-body">
                         <div class="live-container" id="live-container">
                             <div class="no-image" id="no-image">
-                                <div style="font-size: 36px;">No Image</div>
-                                <div style="margin-top: 8px; font-size: 12px;">Waiting for RPi...</div>
+                                <div style="font-size: 36px;">📡</div>
+                                <div style="margin-top: 8px; font-size: 12px;">Waiting for frames...</div>
                             </div>
                             <img id="live-image" class="live-image" style="display:none;" alt="Live">
                             <div class="live-overlay" id="live-overlay" style="display:none;">
@@ -613,10 +657,10 @@ def monitor_dashboard(
                     </div>
                 </div>
 
-                <!-- Current State -->
-                <div class="card" style="margin-top: 20px;">
+                <!-- Phase 2: Current State (hidden when controller off) -->
+                <div class="card" id="phase2-state" style="margin-top: 20px;display:none;">
                     <div class="card-header">
-                        <span class="card-title">Current State</span>
+                        <span class="card-title">📋 Current State</span>
                         <div class="status-indicator">
                             <span class="status-dot" id="ad-dot"></span>
                             <span id="ad-status-text">-</span>
@@ -648,10 +692,10 @@ def monitor_dashboard(
             </div>
 
             <div class="right-col">
-                <!-- Image Log -->
-                <div class="card">
+                <!-- Phase 2: Image Log (hidden when detect off) -->
+                <div class="card" id="phase2-images" style="display:none;">
                     <div class="card-header">
-                        <span class="card-title">Detection Log (Last 10 Images)</span>
+                        <span class="card-title">🖼️ Detection Log (Last 10 Images)</span>
                         <button class="btn small" onclick="fetchImageLog()">Refresh</button>
                     </div>
                     <div class="card-body">
@@ -663,54 +707,62 @@ def monitor_dashboard(
                     </div>
                 </div>
 
-                <!-- Ad Results Log -->
-                <div class="card" style="margin-top: 20px;">
+                <!-- Phase 2: Ad Results Log (hidden when detect off) -->
+                <div class="card" id="phase2-results" style="margin-top: 20px;display:none;">
                     <div class="card-header">
-                        <span class="card-title">Ad Detection Results</span>
+                        <span class="card-title">📊 Ad Detection Results</span>
                     </div>
                     <div class="card-body">
                         <div class="log-list" id="results-log">Loading...</div>
                     </div>
                 </div>
 
-                <!-- Daemon Status -->
-                <div class="card" style="margin-top: 20px;">
+                <!-- Phase 1: RPi Commands Log (hidden when controller off) -->
+                <div class="card" id="phase1-rpi-commands" style="margin-top: 20px;display:none;">
                     <div class="card-header">
-                        <span class="card-title">🤖 Controller Daemon</span>
-                        <div class="status-indicator" style="display:flex;align-items:center;gap:8px;">
-                            <div class="status-dot" id="daemon-status-dot"></div>
-                            <span id="daemon-status-text">Unknown</span>
-                        </div>
-                    </div>
-                    <div class="card-body">
-                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-bottom:15px;">
-                            <div>
-                                <div style="font-size:11px;color:#666;text-transform:uppercase;margin-bottom:4px;">Daemon</div>
-                                <div style="font-size:18px;font-weight:600;" id="daemon-running">-</div>
-                            </div>
-                            <div>
-                                <div style="font-size:11px;color:#666;text-transform:uppercase;margin-bottom:4px;">Controller</div>
-                                <div style="font-size:18px;font-weight:600;" id="controller-running">-</div>
-                            </div>
-                        </div>
-                        <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                            <button type="button" id="start-controller-btn" class="btn" style="flex:1;min-width:120px;background:#51cf66;color:#fff;padding:10px;border:none;border-radius:4px;cursor:pointer;font-size:14px;font-weight:600;" onclick="startController()">▶ Start Controller</button>
-                            <button type="button" id="stop-controller-btn" class="btn" style="flex:1;min-width:120px;background:#ff6b6b;color:#fff;padding:10px;border:none;border-radius:4px;cursor:pointer;font-size:14px;font-weight:600;" onclick="stopController()">■ Stop Controller</button>
-                        </div>
-                        <div style="margin-top:10px;font-size:11px;color:#666;">
-                            <div>Controller PID: <span id="controller-pid">-</span></div>
-                            <div>Last update: <span id="daemon-last-update">-</span></div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- RPi Commands Log -->
-                <div class="card" style="margin-top: 20px;">
-                    <div class="card-header">
-                        <span class="card-title">RPi Commands</span>
+                        <span class="card-title">🔧 RPi Commands</span>
                     </div>
                     <div class="card-body">
                         <div class="log-list" id="rpi-commands-log">Loading...</div>
+                    </div>
+                </div>
+
+                <!-- Phase 1: Debug Info & Controller Logs -->
+                <div class="card" id="phase1-debug" style="margin-top: 20px;display:none;border-left:4px solid #ffa94d;">
+                    <div class="card-header" style="background:#fff3cd;">
+                        <span class="card-title" style="color:#856404;">🐛 Debug Info</span>
+                    </div>
+                    <div class="card-body" style="background:#fffef8;">
+                        <div style="margin-bottom:15px;padding:12px;background:#fff;border:1px solid #ffc107;border-radius:6px;">
+                            <div style="font-size:12px;font-weight:600;margin-bottom:8px;color:#856404;">📋 Controller Logs (Last 50 lines)</div>
+                            <div style="font-size:11px;color:#666;margin-bottom:10px;">
+                                Logy z <code>rpi_controller.py</code> na Raspberry Pi. Ak detect nefunguje, pozri sa na chyby.
+                            </div>
+                            <div style="display:flex;gap:8px;margin-bottom:10px;">
+                                <button class="btn small" style="background:#ffc107;color:#000;" onclick="alert('SSH to RPi:\\n\\ntail -f ~/CLIP/controller.log\\n\\nOr:\\n\\nsudo journalctl -u rpi-daemon -f')">📖 How to view logs</button>
+                            </div>
+                            <div style="font-family:monospace;font-size:11px;background:#1a1a2e;color:#51cf66;padding:12px;border-radius:4px;max-height:300px;overflow-y:auto;white-space:pre-wrap;" id="controller-log-output">
+                                <div style="color:#666;">Controller logs will be shown here in future version.</div>
+                                <div style="color:#666;margin-top:8px;">For now, check logs on RPi:</div>
+                                <div style="color:#ffa94d;margin-top:8px;">$ ssh rpi@your-rpi-ip</div>
+                                <div style="color:#ffa94d;">$ tail -f ~/CLIP/controller.log</div>
+                                <div style="color:#666;margin-top:12px;">Or daemon logs:</div>
+                                <div style="color:#ffa94d;">$ sudo journalctl -u rpi-daemon -f</div>
+                                <div style="color:#666;margin-top:12px;">Check detect errors:</div>
+                                <div style="color:#ffa94d;">$ grep "DETECT" ~/CLIP/controller.log | tail -20</div>
+                            </div>
+                        </div>
+                        
+                        <div style="padding:12px;background:#fff;border:1px solid #ffc107;border-radius:6px;">
+                            <div style="font-size:12px;font-weight:600;margin-bottom:8px;color:#856404;">🔍 Common Detect Issues</div>
+                            <ul style="font-size:11px;color:#666;margin:0;padding-left:20px;">
+                                <li><strong>rpi_detect.py not found</strong> - Check if file exists in ~/CLIP/</li>
+                                <li><strong>torch/CLIP not installed</strong> - Run: pip3 install torch clip pillow</li>
+                                <li><strong>No images in capture dir</strong> - Check if capture is running and creating files</li>
+                                <li><strong>Permission denied</strong> - Check file permissions: chmod +x ~/CLIP/rpi_detect.py</li>
+                                <li><strong>Python error</strong> - Check detect script: python3 ~/CLIP/rpi_detect.py nova</li>
+                            </ul>
+                        </div>
                     </div>
                 </div>
 
@@ -1039,18 +1091,23 @@ def monitor_dashboard(
             const daemonDot = document.getElementById('daemon-status-dot');
             const daemonText = document.getElementById('daemon-status-text');
             
+            let controllerRunning = false;
+            let captureRunning = false;
+            let detectRunning = false;
+            
             if (daemon && daemon.daemon_running) {{
                 daemonDot.className = 'status-dot online active';
                 daemonText.textContent = 'Running';
                 document.getElementById('daemon-running').textContent = 'YES';
-                document.getElementById('daemon-running').style.color = '#51cf66';
+                document.getElementById('daemon-running').style.color = '#fff';
                 
                 if (daemon.controller_running) {{
+                    controllerRunning = true;
                     document.getElementById('controller-running').textContent = 'RUNNING';
                     document.getElementById('controller-running').style.color = '#51cf66';
                 }} else {{
                     document.getElementById('controller-running').textContent = 'STOPPED';
-                    document.getElementById('controller-running').style.color = '#666';
+                    document.getElementById('controller-running').style.color = 'rgba(255,255,255,0.6)';
                 }}
                 
                 document.getElementById('controller-pid').textContent = daemon.controller_pid || '-';
@@ -1061,10 +1118,33 @@ def monitor_dashboard(
                 document.getElementById('daemon-running').textContent = 'NO';
                 document.getElementById('daemon-running').style.color = '#ff6b6b';
                 document.getElementById('controller-running').textContent = '-';
-                document.getElementById('controller-running').style.color = '#666';
+                document.getElementById('controller-running').style.color = 'rgba(255,255,255,0.6)';
                 document.getElementById('controller-pid').textContent = '-';
                 document.getElementById('daemon-last-update').textContent = daemon && daemon.updated_at ? timeSince(daemon.updated_at) : 'Never';
             }}
+
+            // Check if capture/detect are running (from rpi_status)
+            if (rpi && rpi.is_online) {{
+                captureRunning = rpi.capture_running;
+                detectRunning = rpi.detect_running;
+            }}
+
+            // PHASE VISIBILITY LOGIC
+            // Phase 0: Always visible (daemon controls)
+            
+            // Phase 1: Show when controller is running
+            document.getElementById('phase1-controls').style.display = controllerRunning ? 'block' : 'none';
+            document.getElementById('phase1-rpi-commands').style.display = controllerRunning ? 'block' : 'none';
+            document.getElementById('phase1-debug').style.display = controllerRunning ? 'block' : 'none';
+            
+            // Phase 2: Show when controller is running
+            document.getElementById('phase2-stats').style.display = controllerRunning ? 'block' : 'none';
+            document.getElementById('phase2-state').style.display = controllerRunning ? 'block' : 'none';
+            
+            // Phase 2: Show live/images/results only when capture/detect running
+            document.getElementById('phase2-live').style.display = (captureRunning || detectRunning) ? 'block' : 'none';
+            document.getElementById('phase2-images').style.display = detectRunning ? 'block' : 'none';
+            document.getElementById('phase2-results').style.display = detectRunning ? 'block' : 'none';
 
             // Results Log  - show last 20, most recent first
             document.getElementById('results-log').innerHTML = data.recent_results.slice(0, 20).map(r => `

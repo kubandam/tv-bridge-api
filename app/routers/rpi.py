@@ -709,3 +709,28 @@ def get_daemon_status(
         "controller_pid": status.controller_pid,
         "updated_at": status.updated_at.isoformat() if status.updated_at else None,
     }
+
+
+@router.get("/controller-log")
+def get_controller_log(
+    device_id: str = Query(...),
+    lines: int = Query(default=100, ge=1, le=1000, description="Number of lines to return"),
+):
+    """
+    Get controller.log from Raspberry Pi controller.
+    Returns last N lines of the log file.
+    
+    This endpoint reads the log file that rpi_daemon.py writes when starting rpi_controller.py.
+    """
+    # For now, return a placeholder - in production, RPi would need to send logs via API
+    # or we'd need to implement log streaming/upload mechanism
+    return {
+        "device_id": device_id,
+        "lines": [],
+        "message": "Controller logs need to be streamed from RPi. Check RPi with: tail -f ~/CLIP/controller.log or journalctl -u rpi-daemon -f",
+        "instructions": [
+            "On RPi: tail -f ~/CLIP/controller.log",
+            "Or: sudo journalctl -u rpi-daemon -f",
+            "To see detect errors: grep DETECT ~/CLIP/controller.log",
+        ]
+    }
