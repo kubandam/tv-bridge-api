@@ -645,7 +645,18 @@ def monitor_dashboard(
                 <!-- Mobile Commands Log -->
                 <div class="card" style="margin-top: 20px;">
                     <div class="card-header">
-                        <span class="card-title">Mobile App Commands</span>
+                        <span class="card-title">📱 Current Mobile Commands (To be executed)</span>
+                        <span id="pending-count" style="background:#ffa94d;color:#000;padding:2px 8px;border-radius:3px;font-size:11px;">0 pending</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="log-list" id="current-commands-log">Loading...</div>
+                    </div>
+                </div>
+
+                <!-- Mobile Commands History -->
+                <div class="card" style="margin-top: 20px;">
+                    <div class="card-header">
+                        <span class="card-title">📱 Mobile Commands History (Last 10)</span>
                     </div>
                     <div class="card-body">
                         <div class="log-list" id="commands-log">Loading...</div>
@@ -864,32 +875,94 @@ def monitor_dashboard(
             document.getElementById('original-ch').textContent = data.config.original_channel || 'Not set';
             document.getElementById('auto-switch').textContent = data.config.auto_switch_enabled ? 'Enabled' : 'Disabled';
 
-            // Results Log
+            // Results Log  - show last 20, most recent first
             document.getElementById('results-log').innerHTML = data.recent_results.slice(0, 20).map(r => `
                 <div class="log-entry ${{r.is_ad ? 'ad' : ''}}">
                     <span class="log-time">${{formatTime(r.created_at)}}</span>
-                    <span class="log-icon">${{r.is_ad ? '!' : ''}}</span>
-                    <span>${{r.is_ad ? 'AD' : 'OK'}} ${{r.confidence ? '(' + (r.confidence*100).toFixed(0) + '%)' : ''}}</span>
+                    <span class="log-icon">${{r.is_ad ? '🚨' : '✓'}}</span>
+                    <span>${{r.is_ad ? '<strong>AD DETECTED</strong>' : 'Normal'}} ${{r.confidence ? ' - Conf: ' + (r.confidence*100).toFixed(0) + '%' : ''}}</span>
                 </div>
-            `).join('') || '<div class="log-entry">No results</div>';
+            `).join('') || '<div class="log-entry" style="color:#666;padding:20px;text-align:center;">No detection results yet</div>';
 
-            // RPi Commands Log
+            // RPi Commands Log - show last 10, most recent first
             document.getElementById('rpi-commands-log').innerHTML = data.rpi_commands.slice(0, 10).map(c => `
                 <div class="log-entry ${{c.status}}">
                     <span class="log-time">${{formatTime(c.created_at)}}</span>
-                    <span class="log-icon">${{c.status === 'done' ? '+' : c.status === 'failed' ? 'x' : '~'}}</span>
-                    <span>${{c.type}} [${{c.status}}]</span>
+                    <span class="log-icon">${{c.status === 'done' ? '✓' : (c.status === 'failed' ? '✗' : '⏳')}}</span>
+                    <span><strong>${{c.type}}</strong> [${{c.status}}]${{c.processed_at ? ' - ' + timeSince(c.processed_at) : ''}}</span>
                 </div>
-            `).join('') || '<div class="log-entry">No commands</div>';
+            `).join('') || '<div class="log-entry" style="color:#666;padding:20px;text-align:center;">No RPi commands yet</div>';
 
-            // Mobile Commands Log
-            document.getElementById('commands-log').innerHTML = data.recent_commands.slice(0, 10).map(c => `
-                <div class="log-entry ${{c.status}}">
-                    <span class="log-time">${{formatTime(c.created_at)}}</span>
-                    <span class="log-icon">${{c.status === 'done' ? '+' : c.status === 'failed' ? 'x' : '~'}}</span>
-                    <span>${{c.type === 'switch_channel' ? 'CH ' + c.payload.channel : c.type}} [${{c.status}}]</span>
-                </div>
-            `).join('') || '<div class="log-entry">No commands</div>';
+            // Mobile Commands Log - show last 10, most recent first with MORE DETAILS
+            document.getElementById('commands-log').innerHTML = data.recent_commands.slice(0, 10).map(c => {{
+                let desc = c.type;
+                let extraInfo = '';
+                
+                if (c.type === 'switch_channel' && c.payload && c.payload.channel) {{
+                    desc = `📺 Switch to Channel ${{c.payload.channel}}`;
+                    if (c.payload.reason) {{
+                        extraInfo = ` (${{c.payload.reason}})`;
+                    }}
+                }}
+                
+                let statusBadge = '';
+                if (c.status === 'pending') statusBadge = '<span style="color:#ffa94d">⏳ Pending</span>';
+                else if (c.status === 'done') statusBadge = '<span style="color:#51cf66">✓ Done</span>';
+                else if (c.status === 'failed') statusBadge = '<span style="color:#ff6b6b">✗ Failed</span>';
+                
+                let timing = '';
+                if (c.processed_at) {{
+                    timing = ` - Processed ${{timeSince(c.processed_at)}}`;
+                }} else if (c.status === 'pending') {{
+                    timing = ` - Waiting ${{timeSince(c.created_at)}}`;
+                }}
+                
+                return `
+                    <div class="log-entry ${{c.status}}">
+                        <span class="log-time">${{formatTime(c.created_at)}}</span>
+                        <span class="log-icon">${{c.status === 'done' ? '✓' : c.status === 'failed' ? '✗' : '⏳'}}</span>
+                        <div style="flex:1;">
+                            <div><strong>${{desc}}</strong>${{extraInfo}}</div>
+                            <div style="font-size:10px;color:#888;margin-top:2px;">${{statusBadge}}${{timing}}</div>
+                        </div>
+                    </div>
+                `;
+            }}).join('') || '<div class="log-entry" style="color:#666;padding:20px;text-align:center;">No mobile app commands yet. Commands will appear here when the mobile app receives switch instructions.</div>';
+            
+            // Current Pending Commands (most important for monitoring!)
+            const pendingCommands = data.recent_commands.filter(c => c.status === 'pending');
+            document.getElementById('pending-count').textContent = `${{pendingCommands.length}} pending`;
+            document.getElementById('pending-count').style.background = pendingCommands.length > 0 ? '#ffa94d' : '#666';
+            
+            document.getElementById('current-commands-log').innerHTML = pendingCommands.map(c => {{
+                let desc = c.type;
+                let extraInfo = '';
+                
+                if (c.type === 'switch_channel' && c.payload && c.payload.channel) {{
+                    desc = `📺 Switch to Channel ${{c.payload.channel}}`;
+                    if (c.payload.reason) {{
+                        extraInfo = ` <span style="color:#888;">(${{c.payload.reason}})</span>`;
+                    }}
+                }}
+                
+                const ageSeconds = Math.floor((Date.now() - new Date(c.created_at)) / 1000);
+                let ageColor = '#51cf66';
+                if (ageSeconds > 10) ageColor = '#ffa94d';
+                if (ageSeconds > 30) ageColor = '#ff6b6b';
+                
+                return `
+                    <div class="log-entry pending" style="border-left:4px solid #ffa94d;">
+                        <span class="log-time">${{formatTime(c.created_at)}}</span>
+                        <span class="log-icon">⏳</span>
+                        <div style="flex:1;">
+                            <div style="font-size:14px;"><strong>${{desc}}</strong>${{extraInfo}}</div>
+                            <div style="font-size:10px;color:${{ageColor}};margin-top:4px;">
+                                ⏱️ Waiting for ${{ageSeconds}}s - Command ID: ${{c.id}}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }}).join('') || '<div class="log-entry" style="color:#51cf66;padding:20px;text-align:center;">✓ No pending commands - all clear!</div>';
         }}
 
         // Initial fetch
