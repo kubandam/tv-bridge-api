@@ -30,9 +30,19 @@ def get_monitor_data(
     rpi_status = db.get(RpiStatusDB, device_id)
     rpi_data = None
     if rpi_status:
-        # Check if offline
+        # Check if offline - handle both timezone-aware and naive datetimes
         timeout = timedelta(seconds=settings.heartbeat_timeout_seconds)
-        is_online = rpi_status.last_heartbeat and (now - rpi_status.last_heartbeat) < timeout
+        is_online = False
+        if rpi_status.last_heartbeat:
+            try:
+                # Try direct comparison first
+                is_online = (now - rpi_status.last_heartbeat) < timeout
+            except TypeError:
+                # Handle timezone mismatch by comparing naive datetimes
+                now_naive = now.replace(tzinfo=None)
+                heartbeat_naive = rpi_status.last_heartbeat.replace(tzinfo=None) if rpi_status.last_heartbeat.tzinfo else rpi_status.last_heartbeat
+                is_online = (now_naive - heartbeat_naive) < timeout
+        
         rpi_data = {
             "is_online": is_online,
             "last_heartbeat": rpi_status.last_heartbeat.isoformat() if rpi_status.last_heartbeat else None,
@@ -135,7 +145,10 @@ def get_monitor_data(
         try:
             return dt > one_hour_ago
         except TypeError:
-            return dt.replace(tzinfo=None) > one_hour_ago.replace(tzinfo=None)
+            # Handle timezone mismatch
+            dt_naive = dt.replace(tzinfo=None) if dt.tzinfo else dt
+            one_hour_ago_naive = one_hour_ago.replace(tzinfo=None)
+            return dt_naive > one_hour_ago_naive
 
     results_last_hour = [r for r in results if is_recent(r.created_at)]
     ad_detections_last_hour = len([r for r in results_last_hour if r.is_ad])
