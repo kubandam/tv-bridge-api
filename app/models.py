@@ -212,6 +212,26 @@ class RpiDaemonCommandDB(SQLModel, table=True):
     result: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
 
 
+class LabeledFrameDB(SQLModel, table=True):
+    """
+    User-labeled frames for training a custom ad classifier.
+    Labels: 'ad' (advertisement), 'program' (regular content), 'transition' (jingles/promos).
+    """
+
+    __tablename__ = "labeled_frames"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    device_id: str = Field(index=True)
+
+    label: str = Field(index=True)  # ad | program | transition
+    image_base64: str  # JPEG image data
+    ai_was_ad: Optional[bool] = None  # What the AI predicted at the time
+    ai_confidence: Optional[float] = None  # AI confidence at the time
+    is_override: bool = False  # True if user disagreed with AI prediction
+
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+
+
 class RpiDaemonStatusDB(SQLModel, table=True):
     """
     Status of Raspberry Pi daemon and controller.
