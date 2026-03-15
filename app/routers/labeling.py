@@ -528,7 +528,8 @@ def labeling_dashboard(
                 <div class="card">
                     <div class="card-title">Live Feed &amp; Labeling</div>
                     <div class="card-body live-container">
-                        <img id="live-img" class="live-img" src="/v1/live-image.jpg?device_id={device_id}" alt="Live Feed" onerror="this.style.opacity=0.3">
+                        <img id="live-img" class="live-img" src="" alt="Live Feed" style="display:none;">
+                        <div id="no-live-img" style="color:#666; padding:40px; text-align:center;">Waiting for live feed...</div>
                         <div class="live-meta">
                             <span>AI: <span id="ai-prediction">--</span></span>
                             <span>Confidence: <span id="ai-confidence">--</span></span>
@@ -722,18 +723,20 @@ def labeling_dashboard(
         }});
 
         // ── Live image refresh ──────────────────────────
-        function refreshLiveImage() {{
-            const img = document.getElementById('live-img');
-            img.src = '/v1/live-image.jpg?device_id=' + DEVICE_ID + '&t=' + Date.now();
-        }}
-
-        async function refreshLiveInfo() {{
+        async function refreshLiveImage() {{
             try {{
-                const res = await fetch(BASE + '/live-image', {{
+                const res = await fetch(BASE + '/live-image?device_id=' + DEVICE_ID, {{
                     headers: headers(),
                 }});
                 const data = await res.json();
-                if (data.has_image) {{
+                const img = document.getElementById('live-img');
+                const noImg = document.getElementById('no-live-img');
+
+                if (data.has_image && data.image_base64) {{
+                    img.src = 'data:image/jpeg;base64,' + data.image_base64;
+                    img.style.display = 'block';
+                    noImg.style.display = 'none';
+
                     const pred = document.getElementById('ai-prediction');
                     const conf = document.getElementById('ai-confidence');
                     if (data.is_ad) {{
@@ -743,6 +746,9 @@ def labeling_dashboard(
                     }}
                     conf.textContent = data.confidence != null ? (data.confidence * 100).toFixed(1) + '%' : '--';
                     document.getElementById('live-time').textContent = data.timestamp ? timeSince(data.timestamp) : '';
+                }} else {{
+                    img.style.display = 'none';
+                    noImg.style.display = 'block';
                 }}
             }} catch (e) {{ }}
         }}
@@ -818,11 +824,30 @@ def labeling_dashboard(
                     const div = document.createElement('div');
                     div.className = 'gallery-item';
                     div.innerHTML = `
-                        <img src="${{BASE}}/labels/${{f.id}}.jpg" alt="${{f.label}}" onclick="openModal(this.src)">
+                        <img data-frame-id="${{f.id}}" alt="${{f.label}}" style="background:#1a1a2e;" onclick="openModal(this.src)">
                         <span class="gallery-label ${{labelClass[f.label] || ''}}">${{labelNames[f.label] || f.label}}</span>
                         <button class="delete-btn" onclick="deleteFrame(${{f.id}}, event)">&times;</button>
                     `;
                     gallery.appendChild(div);
+
+                    // Fetch image with auth headers
+                    fetchGalleryImage(f.id);
+                }}
+            }} catch (e) {{ }}
+        }}
+
+        async function fetchGalleryImage(frameId) {{
+            try {{
+                const res = await fetch(BASE + '/labels/' + frameId + '.jpg', {{
+                    headers: {{ 'X-API-Key': API_KEY, 'X-Device-Id': DEVICE_ID }},
+                }});
+                if (res.ok) {{
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const img = document.querySelector(`img[data-frame-id="${{frameId}}"]`);
+                    if (img) {{
+                        img.src = url;
+                    }}
                 }}
             }} catch (e) {{ }}
         }}
@@ -917,14 +942,12 @@ def labeling_dashboard(
 
         // ── Init & Refresh loops ──────────────────────
         refreshLiveImage();
-        refreshLiveInfo();
         refreshStats();
         refreshLabels();
         refreshGallery();
         refreshSystemStatus();
 
         setInterval(refreshLiveImage, 2000);
-        setInterval(refreshLiveInfo, 2000);
         setInterval(refreshStats, 10000);
         setInterval(refreshLabels, 10000);
         setInterval(refreshGallery, 15000);
