@@ -8,6 +8,7 @@ from app.routers.device import router as device_router
 from app.routers.monitor import router as monitor_router, monitor_dashboard
 from app.routers.rpi import router as rpi_router
 from app.routers.labeling import router as labeling_router, labeling_dashboard
+from app.routers.review import router as review_router, review_dashboard
 
 logger = logging.getLogger(__name__)
 
@@ -74,3 +75,13 @@ app.get("/monitor")(monitor_dashboard)
 
 # Public labeling dashboard (api_key passed as query param and validated internally)
 app.get("/labeling")(labeling_dashboard)
+
+# Review/history labeling router
+app.include_router(
+    review_router,
+    prefix="/v1",
+    dependencies=[Depends(require_api_key)],
+)
+
+# Public review dashboard
+app.get("/review")(review_dashboard)

@@ -240,9 +240,33 @@ class RpiDaemonStatusDB(SQLModel, table=True):
     __tablename__ = "rpi_daemon_status"
 
     device_id: str = Field(primary_key=True)
-    
+
     daemon_running: bool = False
     controller_running: bool = False
     controller_pid: Optional[int] = None
-    
+
     updated_at: datetime = Field(default_factory=utcnow)
+
+
+class FrameHistoryDB(SQLModel, table=True):
+    """
+    Sampled historical frames from RPi for retrospective labeling.
+    Saved at ~1 frame / 5 seconds. Capped at MAX_HISTORY_UNLABELED unlabeled rows.
+    label=None means unlabeled. Labeled frames are never auto-deleted.
+    """
+
+    __tablename__ = "frame_history"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    device_id: str = Field(index=True)
+
+    image_base64: str
+    is_ad: bool = Field(index=True)       # AI prediction at capture time
+    confidence: Optional[float] = None
+    captured_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+
+    # Set when user reviews
+    label: Optional[str] = Field(default=None, index=True)  # ad | program | transition | None
+    labeled_at: Optional[datetime] = None
+    is_override: Optional[bool] = None  # True if user disagreed with AI

@@ -11,7 +11,7 @@ from sqlmodel import Session, select
 from sqlalchemy import delete
 
 from app.db.engine import get_session
-from app.models import AdResultDB, AdStateDB, DeviceCommandDB, DeviceConfigDB, utcnow
+from app.models import AdResultDB, AdStateDB, DeviceCommandDB, DeviceConfigDB, FrameHistoryDB, utcnow
 from app.settings import settings
 
 router = APIRouter(tags=["device"])
@@ -19,6 +19,11 @@ router = APIRouter(tags=["device"])
 # In-memory storage for latest images per device (not persisted)
 # Format: { "device_id": {"image_base64": "...", "timestamp": datetime, "is_ad": bool, "confidence": float} }
 _latest_images: Dict[str, Dict[str, Any]] = {}
+
+# History sampling: persist 1 frame per HISTORY_SAMPLE_INTERVAL_S to frame_history table
+_last_history_ts: Dict[str, datetime] = {}
+HISTORY_SAMPLE_INTERVAL_S = 5
+MAX_HISTORY_UNLABELED = 5000
 
 
 def require_device_id(x_device_id: str | None = Header(default=None)) -> str:
@@ -67,6 +72,31 @@ def post_ad_result(
             "is_ad": body.is_ad,
             "confidence": body.confidence,
         }
+
+        # Persist sampled frame to history (1 per HISTORY_SAMPLE_INTERVAL_S)
+        last_ts = _last_history_ts.get(device_id)
+        if last_ts is None or (now - last_ts).total_seconds() >= HISTORY_SAMPLE_INTERVAL_S:
+            _last_history_ts[device_id] = now
+            hist = FrameHistoryDB(
+                device_id=device_id,
+                image_base64=body.image_base64,
+                is_ad=body.is_ad,
+                confidence=body.confidence,
+                captured_at=body.captured_at,
+            )
+            db.add(hist)
+            db.flush()
+            # Rotate: delete oldest unlabeled when over cap (never delete labeled)
+            old_ids_stmt = (
+                select(FrameHistoryDB.id)
+                .where(FrameHistoryDB.device_id == device_id)
+                .where(FrameHistoryDB.label == None)
+                .order_by(FrameHistoryDB.id.desc())
+                .offset(MAX_HISTORY_UNLABELED)
+            )
+            old_ids = db.exec(old_ids_stmt).all()
+            if old_ids:
+                db.exec(delete(FrameHistoryDB).where(FrameHistoryDB.id.in_(old_ids)))
 
     row = AdResultDB(
         device_id=device_id,

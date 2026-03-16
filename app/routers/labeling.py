@@ -194,13 +194,22 @@ def get_label_stats(
             intervals.append((t2 - t1).total_seconds())
         avg_interval = round(sum(intervals) / len(intervals), 1)
 
+    # Per-class targets: 500 ad, 500 program, transition = bonus
+    target_ad = 500
+    target_program = 500
+    ad_count = by_label.get("ad", 0)
+    program_count = by_label.get("program", 0)
+    progress_pct = round((min(ad_count, target_ad) + min(program_count, target_program)) / (target_ad + target_program) * 100, 1)
+
     return {
         "total_labeled": total,
         "by_label": by_label,
         "overrides": overrides,
         "ai_accuracy_pct": ai_accuracy,
-        "target_samples": 300,
-        "progress_pct": round(min(total / 300 * 100, 100), 1),
+        "target_ad": target_ad,
+        "target_program": target_program,
+        "progress_pct": progress_pct,
+        "training_ready": ad_count >= target_ad and program_count >= target_program,
         "ad_blocks_24h": len(ad_blocks),
         "avg_ad_duration_s": avg_duration,
         "avg_interval_between_ads_s": avg_interval,
@@ -761,11 +770,15 @@ def labeling_dashboard(
                 }});
                 const data = await res.json();
 
-                document.getElementById('stat-ad').textContent = data.by_label.ad || 0;
-                document.getElementById('stat-program').textContent = data.by_label.program || 0;
-                document.getElementById('stat-transition').textContent = data.by_label.transition || 0;
+                const ad = data.by_label.ad || 0;
+                const prog = data.by_label.program || 0;
+                const tAd = data.target_ad || 500;
+                const tProg = data.target_program || 500;
+                document.getElementById('stat-ad').textContent = ad + ' / ' + tAd;
+                document.getElementById('stat-program').textContent = prog + ' / ' + tProg;
+                document.getElementById('stat-transition').textContent = (data.by_label.transition || 0) + ' (bonus)';
 
-                document.getElementById('progress-count').textContent = data.total_labeled + ' / ' + data.target_samples + ' samples';
+                document.getElementById('progress-count').textContent = data.progress_pct + '% complete';
                 document.getElementById('progress-pct').textContent = data.progress_pct + '%';
                 document.getElementById('progress-bar').style.width = data.progress_pct + '%';
 
