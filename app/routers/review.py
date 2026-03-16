@@ -120,6 +120,46 @@ def label_frame(
     }
 
 
+class BulkLabelIn(BaseModel):
+    ids: list[int]
+    label: str
+    device_id: str = "tv-1"
+
+
+@router.post("/history/frames/bulk-label")
+def bulk_label_frames(body: BulkLabelIn, db: Session = Depends(get_session)):
+    """Label multiple historical frames at once."""
+    if body.label not in ("ad", "program", "transition"):
+        raise HTTPException(status_code=400, detail="Label must be: ad, program, transition")
+    if not body.ids:
+        raise HTTPException(status_code=400, detail="No frame IDs provided")
+    if len(body.ids) > 500:
+        raise HTTPException(status_code=400, detail="Max 500 frames per bulk operation")
+
+    now = utcnow()
+    frames = db.exec(select(FrameHistoryDB).where(FrameHistoryDB.id.in_(body.ids))).all()
+
+    for frame in frames:
+        is_override = (body.label == "ad" and not frame.is_ad) or \
+                      (body.label in ("program", "transition") and frame.is_ad)
+        frame.label = body.label
+        frame.labeled_at = now
+        frame.is_override = is_override
+        db.add(frame)
+        db.add(LabeledFrameDB(
+            device_id=frame.device_id,
+            label=body.label,
+            image_base64=frame.image_base64,
+            ai_was_ad=frame.is_ad,
+            ai_confidence=frame.confidence,
+            is_override=is_override,
+            created_at=frame.captured_at or now,
+        ))
+
+    db.commit()
+    return {"ok": True, "labeled": len(frames), "label": body.label}
+
+
 @router.delete("/history/frames/{frame_id}")
 def delete_frame(frame_id: int, db: Session = Depends(get_session)):
     frame = db.get(FrameHistoryDB, frame_id)
@@ -294,8 +334,9 @@ def review_dashboard(
         /* Left: review area */
         .review-area {{ display: flex; flex-direction: column; gap: 16px; }}
 
-        /* Filter tabs */
-        .filter-tabs {{ display: flex; gap: 8px; }}
+        /* Filter + mode tabs */
+        .tabs-row {{ display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }}
+        .filter-tabs {{ display: flex; gap: 6px; flex: 1; flex-wrap: wrap; }}
         .filter-tab {{
             padding: 6px 14px;
             border-radius: 20px;
@@ -309,6 +350,101 @@ def review_dashboard(
         }}
         .filter-tab.active {{ background: #a78bfa; border-color: #a78bfa; color: #111; }}
         .filter-tab:hover:not(.active) {{ border-color: #a78bfa; color: #a78bfa; }}
+
+        /* Mode toggle */
+        .mode-toggle {{ display: flex; background: #1a1a2e; border-radius: 6px; border: 1px solid #2a2a4e; overflow: hidden; }}
+        .mode-btn {{ padding: 6px 14px; border: none; background: transparent; color: #888; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s; }}
+        .mode-btn.active {{ background: #2a2a4e; color: #eee; }}
+
+        /* Grid thumbnails */
+        .thumb-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }}
+        .thumb-item {{
+            position: relative;
+            border-radius: 6px;
+            overflow: hidden;
+            cursor: pointer;
+            border: 2px solid transparent;
+            background: #1a1a2e;
+            aspect-ratio: 16/9;
+            transition: border-color 0.1s, transform 0.1s;
+        }}
+        .thumb-item:hover {{ border-color: #a78bfa; transform: scale(1.02); }}
+        .thumb-item.selected {{ border-color: #a78bfa; }}
+        .thumb-item.selected::after {{
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: rgba(167,139,250,0.2);
+            pointer-events: none;
+        }}
+        .thumb-item img {{ width: 100%; height: 100%; object-fit: cover; display: block; }}
+        .thumb-placeholder {{ width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #333; font-size: 11px; }}
+        .thumb-badge {{ position: absolute; top: 4px; left: 4px; display: flex; gap: 3px; }}
+        .thumb-check {{
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: #a78bfa;
+            color: #111;
+            font-size: 13px;
+            font-weight: 900;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }}
+        .thumb-item.selected .thumb-check {{ display: flex; }}
+        .thumb-label-tag {{
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 2px 6px;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            text-align: center;
+        }}
+        .tl-ad {{ background: rgba(255,68,68,0.85); color: #fff; }}
+        .tl-program {{ background: rgba(34,197,94,0.85); color: #fff; }}
+        .tl-transition {{ background: rgba(245,158,11,0.85); color: #111; }}
+
+        /* Selection action bar */
+        .sel-bar {{
+            position: sticky;
+            bottom: 0;
+            background: #1a1a2e;
+            border-top: 2px solid #a78bfa;
+            padding: 12px 16px;
+            display: none;
+            gap: 10px;
+            align-items: center;
+            z-index: 50;
+            flex-wrap: wrap;
+        }}
+        .sel-bar.visible {{ display: flex; }}
+        .sel-count {{ font-size: 14px; font-weight: 700; color: #a78bfa; min-width: 90px; }}
+        .sel-label-btn {{
+            padding: 10px 20px;
+            border: none;
+            border-radius: 7px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            text-transform: uppercase;
+            transition: all 0.12s;
+        }}
+        .sel-label-btn:hover {{ transform: translateY(-1px); }}
+        .sel-label-btn:disabled {{ opacity: 0.4; cursor: not-allowed; transform: none; }}
+        .sel-helpers {{ display: flex; gap: 6px; margin-left: auto; }}
+        .sel-helper {{ padding: 6px 12px; border: 1px solid #2a2a4e; border-radius: 5px; background: transparent; color: #888; font-size: 12px; cursor: pointer; }}
+        .sel-helper:hover {{ border-color: #a78bfa; color: #a78bfa; }}
+
+        /* Load more */
+        .load-more-btn {{ display: block; width: 100%; padding: 10px; background: #1a1a2e; border: 1px solid #2a2a4e; border-radius: 6px; color: #888; font-size: 13px; cursor: pointer; text-align: center; margin-top: 8px; }}
+        .load-more-btn:hover {{ border-color: #a78bfa; color: #a78bfa; }}
 
         /* Frame card */
         .frame-card {{
@@ -539,53 +675,80 @@ def review_dashboard(
     <div class="main">
         <!-- Review area -->
         <div class="review-area">
-            <!-- Filter tabs -->
-            <div class="filter-tabs">
-                <button class="filter-tab active" onclick="setFilter('unlabeled')" id="tab-unlabeled">Unlabeled</button>
-                <button class="filter-tab" onclick="setFilter('all')" id="tab-all">All</button>
-                <button class="filter-tab" onclick="setFilter('ad')" id="tab-ad">Reklama</button>
-                <button class="filter-tab" onclick="setFilter('program')" id="tab-program">Program</button>
-                <button class="filter-tab" onclick="setFilter('transition')" id="tab-transition">Prechod</button>
-            </div>
-
-            <!-- Frame card -->
-            <div class="frame-card" id="frame-card">
-                <div class="frame-header">
-                    <span class="frame-counter" id="frame-counter">Loading...</span>
-                    <span id="frame-time">--</span>
+            <!-- Filter + mode row -->
+            <div class="tabs-row">
+                <div class="filter-tabs">
+                    <button class="filter-tab active" onclick="setFilter('unlabeled')" id="tab-unlabeled">Unlabeled</button>
+                    <button class="filter-tab" onclick="setFilter('all')" id="tab-all">All</button>
+                    <button class="filter-tab" onclick="setFilter('ad')" id="tab-ad">Reklama</button>
+                    <button class="filter-tab" onclick="setFilter('program')" id="tab-program">Program</button>
+                    <button class="filter-tab" onclick="setFilter('transition')" id="tab-transition">Prechod</button>
                 </div>
-                <div class="frame-img-wrap">
-                    <img id="frame-img" src="" alt="Frame" style="display:none">
-                    <div class="frame-img-loading" id="frame-loading">Loading frames...</div>
-                </div>
-                <div class="frame-meta" id="frame-meta" style="display:none">
-                    <span>AI: <span id="ai-pred">--</span></span>
-                    <span>Confidence: <span id="ai-conf">--</span></span>
-                    <span id="frame-label-badge"></span>
-                </div>
-                <div class="label-area">
-                    <div class="label-buttons">
-                        <button class="label-btn btn-ad" onclick="doLabel('ad')" id="btn-ad">Reklama</button>
-                        <button class="label-btn btn-program" onclick="doLabel('program')" id="btn-program">Program</button>
-                        <button class="label-btn btn-transition" onclick="doLabel('transition')" id="btn-transition">Prechod</button>
-                    </div>
-                    <div class="label-feedback" id="label-fb"></div>
-                    <button class="btn-skip" onclick="doSkip()">Skip &rarr; &nbsp;<span class="kbd">Space</span></button>
-                    <div class="shortcuts">
-                        <span class="kbd">1</span> Reklama &nbsp;
-                        <span class="kbd">2</span> Program &nbsp;
-                        <span class="kbd">3</span> Prechod &nbsp;
-                        <span class="kbd">←</span><span class="kbd">→</span> Navigate
-                    </div>
+                <div class="mode-toggle">
+                    <button class="mode-btn active" onclick="setMode('queue')" id="mode-queue">&#9654; Queue</button>
+                    <button class="mode-btn" onclick="setMode('grid')" id="mode-grid">&#9783; Grid</button>
                 </div>
             </div>
 
-            <!-- Empty state (hidden by default) -->
-            <div id="empty-state" style="display:none" class="frame-card">
-                <div class="empty-state">
-                    <h2>&#10003; All done!</h2>
-                    <p>No more frames to review in this filter.</p>
-                    <p style="margin-top:8px;font-size:13px;">Switch filter or wait for new frames from RPi.</p>
+            <!-- Queue mode -->
+            <div id="queue-section">
+                <div class="frame-card" id="frame-card">
+                    <div class="frame-header">
+                        <span class="frame-counter" id="frame-counter">Loading...</span>
+                        <span id="frame-time">--</span>
+                    </div>
+                    <div class="frame-img-wrap">
+                        <img id="frame-img" src="" alt="Frame" style="display:none">
+                        <div class="frame-img-loading" id="frame-loading">Loading frames...</div>
+                    </div>
+                    <div class="frame-meta" id="frame-meta" style="display:none">
+                        <span>AI: <span id="ai-pred">--</span></span>
+                        <span>Confidence: <span id="ai-conf">--</span></span>
+                        <span id="frame-label-badge"></span>
+                    </div>
+                    <div class="label-area">
+                        <div class="label-buttons">
+                            <button class="label-btn btn-ad" onclick="doLabel('ad')" id="btn-ad">Reklama</button>
+                            <button class="label-btn btn-program" onclick="doLabel('program')" id="btn-program">Program</button>
+                            <button class="label-btn btn-transition" onclick="doLabel('transition')" id="btn-transition">Prechod</button>
+                        </div>
+                        <div class="label-feedback" id="label-fb"></div>
+                        <button class="btn-skip" onclick="doSkip()">Skip &rarr; &nbsp;<span class="kbd">Space</span></button>
+                        <div class="shortcuts">
+                            <span class="kbd">1</span> Reklama &nbsp;
+                            <span class="kbd">2</span> Program &nbsp;
+                            <span class="kbd">3</span> Prechod &nbsp;
+                            <span class="kbd">←</span><span class="kbd">→</span> Navigate
+                        </div>
+                    </div>
+                </div>
+                <div id="empty-state" style="display:none" class="frame-card">
+                    <div class="empty-state">
+                        <h2>&#10003; All done!</h2>
+                        <p>No more frames to review in this filter.</p>
+                        <p style="margin-top:8px;font-size:13px;">Switch filter or wait for new frames from RPi.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Grid mode -->
+            <div id="grid-section" style="display:none">
+                <div class="thumb-grid" id="thumb-grid"></div>
+                <div id="grid-empty" style="display:none" class="frame-card">
+                    <div class="empty-state"><h2>&#10003; All done!</h2><p>No frames in this filter.</p></div>
+                </div>
+                <button class="load-more-btn" id="load-more-btn" style="display:none" onclick="loadMoreGrid()">Load more frames...</button>
+            </div>
+
+            <!-- Selection bar (grid mode) -->
+            <div class="sel-bar" id="sel-bar">
+                <span class="sel-count" id="sel-count">0 selected</span>
+                <button class="sel-label-btn btn-ad" onclick="bulkLabel('ad')" id="sel-btn-ad" disabled>&#128308; Reklama</button>
+                <button class="sel-label-btn btn-program" onclick="bulkLabel('program')" id="sel-btn-prog" disabled>&#128994; Program</button>
+                <button class="sel-label-btn btn-transition" onclick="bulkLabel('transition')" id="sel-btn-trans" disabled>&#128992; Prechod</button>
+                <div class="sel-helpers">
+                    <button class="sel-helper" onclick="selectAll()">Select All</button>
+                    <button class="sel-helper" onclick="deselectAll()">Clear</button>
                 </div>
             </div>
         </div>
@@ -688,18 +851,211 @@ def review_dashboard(
         }}
 
         // ── State ──────────────────────────────────────────────────
-        let queue = [];          // loaded frame metadata
-        let queueIdx = 0;        // current position
-        let queueTotal = 0;      // total matching filter
+        let queue = [];
+        let queueIdx = 0;
+        let queueTotal = 0;
         let currentFilter = 'unlabeled';
+        let currentMode = 'queue';
         let busy = false;
         let recentLabels = [];
-        let imgCache = {{}};      // frameId → blob URL
+        let imgCache = {{}};
+
+        // Grid state
+        let gridFrames = [];
+        let gridTotal = 0;
+        let gridOffset = 0;
+        let selectedIds = new Set();
+        let lastClickedIdx = null;
+        const thumbObserver = new IntersectionObserver((entries) => {{
+            entries.forEach(e => {{
+                if (e.isIntersecting) {{
+                    const id = parseInt(e.target.dataset.id);
+                    if (!imgCache[id]) loadThumbImage(id);
+                    thumbObserver.unobserve(e.target);
+                }}
+            }});
+        }}, {{ rootMargin: '200px' }});
 
         // ── Init ──────────────────────────────────────────────────
         async function init() {{
             await loadQueue();
             await refreshStats();
+        }}
+
+        // ── Mode switching ────────────────────────────────────────
+        function setMode(mode) {{
+            currentMode = mode;
+            document.getElementById('mode-queue').classList.toggle('active', mode === 'queue');
+            document.getElementById('mode-grid').classList.toggle('active', mode === 'grid');
+            document.getElementById('queue-section').style.display = mode === 'queue' ? 'block' : 'none';
+            document.getElementById('grid-section').style.display = mode === 'grid' ? 'block' : 'none';
+            document.getElementById('sel-bar').classList.toggle('visible', mode === 'grid');
+            if (mode === 'grid') loadGrid(true);
+        }}
+
+        // ── Grid ──────────────────────────────────────────────────
+        async function loadGrid(reset = false) {{
+            if (reset) {{
+                gridFrames = [];
+                gridOffset = 0;
+                selectedIds.clear();
+                updateSelBar();
+                document.getElementById('thumb-grid').innerHTML = '';
+            }}
+            try {{
+                const res = await fetch(BASE + '/history/frames?device_id=' + DEVICE_ID + '&filter=' + currentFilter + '&limit=60&offset=' + gridOffset, {{ headers: hdrs() }});
+                const data = await res.json();
+                gridTotal = data.total;
+                const newItems = data.items;
+                gridFrames = gridFrames.concat(newItems);
+                gridOffset = gridFrames.length;
+                const container = document.getElementById('thumb-grid');
+                newItems.forEach((f, i) => container.appendChild(createThumb(f, gridFrames.length - newItems.length + i)));
+                document.getElementById('grid-empty').style.display = gridFrames.length === 0 ? 'block' : 'none';
+                document.getElementById('load-more-btn').style.display = gridFrames.length < gridTotal ? 'block' : 'none';
+                document.getElementById('update-time').textContent = new Date().toLocaleTimeString();
+            }} catch(e) {{}}
+        }}
+
+        async function loadMoreGrid() {{
+            await loadGrid(false);
+        }}
+
+        function createThumb(frame, idx) {{
+            const div = document.createElement('div');
+            div.className = 'thumb-item';
+            div.dataset.id = frame.id;
+            div.dataset.idx = idx;
+
+            const aiBadge = frame.is_ad
+                ? '<span class="badge badge-ad" style="font-size:9px;padding:2px 6px">AD</span>'
+                : '<span class="badge badge-ok" style="font-size:9px;padding:2px 6px">OK</span>';
+            const labelTag = frame.label
+                ? `<div class="thumb-label-tag tl-${{frame.label}}">${{frame.label === 'transition' ? 'Prechod' : frame.label === 'ad' ? 'Reklama' : 'Program'}}</div>`
+                : '';
+
+            div.innerHTML = `
+                <img id="timg-${{frame.id}}" style="display:none" alt="">
+                <div class="thumb-placeholder" id="tload-${{frame.id}}">&#9651;</div>
+                <div class="thumb-badge">${{aiBadge}}</div>
+                <div class="thumb-check">&#10003;</div>
+                ${{labelTag}}
+            `;
+            div.addEventListener('click', e => onThumbClick(e, frame.id, idx));
+            thumbObserver.observe(div);
+            return div;
+        }}
+
+        async function loadThumbImage(frameId) {{
+            try {{
+                const res = await fetch(BASE + '/history/frames/' + frameId + '.jpg', {{
+                    headers: {{ 'X-API-Key': API_KEY, 'X-Device-Id': DEVICE_ID }},
+                }});
+                if (res.ok) {{
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    imgCache[frameId] = url;
+                    const img = document.getElementById('timg-' + frameId);
+                    const ph = document.getElementById('tload-' + frameId);
+                    if (img) {{ img.src = url; img.style.display = 'block'; }}
+                    if (ph) ph.style.display = 'none';
+                }}
+            }} catch(e) {{}}
+        }}
+
+        function onThumbClick(e, frameId, idx) {{
+            if (e.shiftKey && lastClickedIdx !== null) {{
+                const a = Math.min(lastClickedIdx, idx);
+                const b = Math.max(lastClickedIdx, idx);
+                for (let i = a; i <= b; i++) {{
+                    if (gridFrames[i]) selectedIds.add(gridFrames[i].id);
+                }}
+            }} else if (e.ctrlKey || e.metaKey) {{
+                if (selectedIds.has(frameId)) selectedIds.delete(frameId);
+                else selectedIds.add(frameId);
+            }} else {{
+                if (selectedIds.has(frameId) && selectedIds.size === 1) selectedIds.delete(frameId);
+                else {{ selectedIds.clear(); selectedIds.add(frameId); }}
+            }}
+            lastClickedIdx = idx;
+            updateGridSelection();
+            updateSelBar();
+        }}
+
+        function updateGridSelection() {{
+            document.querySelectorAll('.thumb-item').forEach(el => {{
+                el.classList.toggle('selected', selectedIds.has(parseInt(el.dataset.id)));
+            }});
+        }}
+
+        function selectAll() {{
+            gridFrames.forEach(f => selectedIds.add(f.id));
+            updateGridSelection();
+            updateSelBar();
+        }}
+
+        function deselectAll() {{
+            selectedIds.clear();
+            updateGridSelection();
+            updateSelBar();
+        }}
+
+        function updateSelBar() {{
+            const n = selectedIds.size;
+            document.getElementById('sel-count').textContent = n + ' selected';
+            ['sel-btn-ad', 'sel-btn-prog', 'sel-btn-trans'].forEach(id => {{
+                const btn = document.getElementById(id);
+                if (btn) btn.disabled = n === 0;
+            }});
+        }}
+
+        async function bulkLabel(label) {{
+            if (selectedIds.size === 0 || busy) return;
+            busy = true;
+            const ids = Array.from(selectedIds);
+            const selCount = document.getElementById('sel-count');
+            selCount.textContent = 'Saving ' + ids.length + '...';
+            try {{
+                const res = await fetch(BASE + '/history/frames/bulk-label', {{
+                    method: 'POST',
+                    headers: hdrs(),
+                    body: JSON.stringify({{ ids, label, device_id: DEVICE_ID }}),
+                }});
+                const data = await res.json();
+                if (data.ok) {{
+                    const labelNames = {{ ad: 'Reklama', program: 'Program', transition: 'Prechod' }};
+                    addRecent(label, false, new Date().toISOString());
+                    if (currentFilter === 'unlabeled') {{
+                        ids.forEach(id => {{
+                            const el = document.querySelector('.thumb-item[data-id="' + id + '"]');
+                            if (el) el.remove();
+                            const fi = gridFrames.findIndex(f => f.id === id);
+                            if (fi !== -1) gridFrames.splice(fi, 1);
+                        }});
+                        gridOffset -= ids.length;
+                        gridTotal = Math.max(0, gridTotal - ids.length);
+                        document.getElementById('grid-empty').style.display = gridFrames.length === 0 ? 'block' : 'none';
+                    }} else {{
+                        // Update label tags in DOM
+                        const tagClass = {{ ad: 'tl-ad', program: 'tl-program', transition: 'tl-transition' }};
+                        const tagName = {{ ad: 'Reklama', program: 'Program', transition: 'Prechod' }};
+                        ids.forEach(id => {{
+                            const el = document.querySelector('.thumb-item[data-id="' + id + '"]');
+                            if (el) {{
+                                let tag = el.querySelector('.thumb-label-tag');
+                                if (!tag) {{ tag = document.createElement('div'); tag.className = 'thumb-label-tag'; el.appendChild(tag); }}
+                                tag.className = 'thumb-label-tag ' + tagClass[label];
+                                tag.textContent = tagName[label];
+                            }}
+                        }});
+                    }}
+                    selectedIds.clear();
+                    updateGridSelection();
+                    refreshStats();
+                }}
+            }} catch(e) {{}}
+            updateSelBar();
+            busy = false;
         }}
 
         // ── Queue loading ─────────────────────────────────────────
@@ -920,11 +1276,11 @@ def review_dashboard(
         function setFilter(f) {{
             currentFilter = f;
             ['unlabeled', 'all', 'ad', 'program', 'transition'].forEach(name => {{
-                const tab = document.getElementById('tab-' + name);
-                tab.classList.toggle('active', name === f);
+                document.getElementById('tab-' + name).classList.toggle('active', name === f);
             }});
             imgCache = {{}};
-            loadQueue(true);
+            if (currentMode === 'queue') loadQueue(true);
+            else loadGrid(true);
         }}
 
         // ── Recent labels ─────────────────────────────────────────
@@ -1020,12 +1376,21 @@ def review_dashboard(
         // ── Keyboard ──────────────────────────────────────────────
         document.addEventListener('keydown', e => {{
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-            if (e.key === '1') doLabel('ad');
-            else if (e.key === '2') doLabel('program');
-            else if (e.key === '3') doLabel('transition');
-            else if (e.key === ' ') {{ e.preventDefault(); doSkip(); }}
-            else if (e.key === 'ArrowRight') advance();
-            else if (e.key === 'ArrowLeft') goBack();
+            if (currentMode === 'queue') {{
+                if (e.key === '1') doLabel('ad');
+                else if (e.key === '2') doLabel('program');
+                else if (e.key === '3') doLabel('transition');
+                else if (e.key === ' ') {{ e.preventDefault(); doSkip(); }}
+                else if (e.key === 'ArrowRight') advance();
+                else if (e.key === 'ArrowLeft') goBack();
+            }} else {{
+                // Grid mode
+                if ((e.ctrlKey || e.metaKey) && e.key === 'a') {{ e.preventDefault(); selectAll(); }}
+                else if (e.key === 'Escape') deselectAll();
+                else if (e.key === '1' && selectedIds.size > 0) bulkLabel('ad');
+                else if (e.key === '2' && selectedIds.size > 0) bulkLabel('program');
+                else if (e.key === '3' && selectedIds.size > 0) bulkLabel('transition');
+            }}
         }});
 
         // ── Helpers ───────────────────────────────────────────────
