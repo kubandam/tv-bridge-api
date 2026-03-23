@@ -1,7 +1,7 @@
 import logging
 from fastapi import FastAPI, Depends, Header, HTTPException
 from sqlmodel import Session
-
+ 
 from app.db.engine import create_db_and_tables, get_session
 from app.settings import settings
 from app.routers.device import router as device_router
