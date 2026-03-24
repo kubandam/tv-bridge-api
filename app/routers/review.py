@@ -469,6 +469,29 @@ a{{color:inherit;text-decoration:none}}
 .modal-close-x{{position:absolute;top:10px;right:12px;background:rgba(0,0,0,.5);border:none;color:#94a3b8;font-size:20px;cursor:pointer;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center}}
 /* Loading */
 .loading{{text-align:center;padding:40px;color:#475569;font-size:14px}}
+/* Bulk select */
+.frame-card.selected{{border-color:#a78bfa;box-shadow:0 0 0 2px #a78bfa44}}
+.select-check{{position:absolute;top:6px;left:6px;width:20px;height:20px;border-radius:50%;border:2px solid #4338ca;background:#0f0f1a;display:none;align-items:center;justify-content:center;color:#a78bfa;font-size:13px;font-weight:700}}
+.select-mode .select-check{{display:flex}}
+.select-mode .frame-card{{cursor:pointer}}
+.frame-card.selected .select-check{{background:#4338ca;border-color:#a78bfa;color:#fff}}
+.btn-select{{background:#312e81;color:#a5b4fc;border:1px solid #4338ca;padding:5px 12px;border-radius:6px;font-size:12px;cursor:pointer}}
+.btn-select.active{{background:#4338ca;color:#fff}}
+.btn-select-all{{background:transparent;color:#64748b;border:1px solid #2d2d4e;padding:5px 12px;border-radius:6px;font-size:12px;cursor:pointer;display:none}}
+.btn-select-all:hover{{border-color:#4338ca;color:#a5b4fc}}
+.select-mode .btn-select-all{{display:inline-block}}
+.bulk-bar{{position:sticky;bottom:0;background:#1a1a2e;border-top:2px solid #4338ca;padding:12px 20px;display:none;align-items:center;gap:10px;z-index:100;flex-wrap:wrap}}
+.bulk-bar.visible{{display:flex}}
+.bulk-count{{font-size:14px;font-weight:600;color:#a78bfa;flex:1;min-width:80px}}
+.btn-bulk{{border:none;padding:9px 22px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer}}
+.btn-bulk-ad{{background:#7f1d1d;color:#fca5a5}}
+.btn-bulk-ad:hover{{background:#991b1b}}
+.btn-bulk-program{{background:#14532d;color:#86efac}}
+.btn-bulk-program:hover{{background:#166534}}
+.btn-bulk-transition{{background:#1e3a5f;color:#93c5fd}}
+.btn-bulk-transition:hover{{background:#1e40af}}
+.btn-bulk-cancel{{background:#2d2d4e;color:#94a3b8;border:none;padding:9px 16px;border-radius:8px;font-size:13px;cursor:pointer}}
+.btn-bulk-cancel:hover{{background:#3d3d5e}}
 </style>
 </head>
 <body>
@@ -499,11 +522,22 @@ a{{color:inherit;text-decoration:none}}
     <button class="filter-btn" data-filter="ad">Ad</button>
     <button class="filter-btn" data-filter="program">Program</button>
     <button class="filter-btn" data-filter="transition">Transition</button>
+    <button class="btn-select" id="btnSelectMode" onclick="toggleSelectMode()">Vyber viac</button>
+    <button class="btn-select-all" id="btnSelectAll" onclick="selectAll()">Vybrat vsetky</button>
   </div>
 </div>
 
 <div id="grid" class="grid"></div>
 <div class="pagination" id="pagination"></div>
+
+<!-- Bulk action bar -->
+<div class="bulk-bar" id="bulkBar">
+  <span class="bulk-count" id="bulkCount">0 vybratych</span>
+  <button class="btn-bulk btn-bulk-ad" onclick="doBulkLabel('ad')">AD</button>
+  <button class="btn-bulk btn-bulk-program" onclick="doBulkLabel('program')">Program</button>
+  <button class="btn-bulk btn-bulk-transition" onclick="doBulkLabel('transition')">Transition</button>
+  <button class="btn-bulk-cancel" onclick="toggleSelectMode()">Zrusit</button>
+</div>
 
 <!-- Modal -->
 <div class="modal" id="modal">
@@ -533,6 +567,8 @@ let filter = 'unlabeled';
 let offset = 0;
 let total = 0;
 let selectedId = null;
+let selectMode = false;
+let selectedIds = new Set();
 
 const hdr = () => ({{headers:{{'X-API-Key': API_KEY}}}});
 
@@ -579,6 +615,7 @@ async function loadStats() {{
 
 async function loadFrames() {{
   const grid = document.getElementById('grid');
+  grid.className = 'grid' + (selectMode ? ' select-mode' : '');
   grid.innerHTML = '<div class="loading">Nacitavam...</div>';
 
   try {{
@@ -601,7 +638,9 @@ async function loadFrames() {{
       const badge = f.label
         ? `<span class="badge badge-${{f.label}}">${{f.label}}</span>`
         : `<span class="badge badge-pending">PENDING</span>`;
-      return `<div class="frame-card" onclick="openModal(${{f.id}}, '${{f.channel || ''}}', '${{time}}', ${{f.confidence}}, '${{f.label || ''}}')">
+      const isSel = selectedIds.has(f.id);
+      return `<div class="frame-card${{isSel ? ' selected' : ''}}" id="card-${{f.id}}" onclick="handleCardClick(${{f.id}}, '${{f.channel || ''}}', '${{time}}', ${{f.confidence}}, '${{f.label || ''}}')">
+        <div class="select-check">${{isSel ? '✓' : ''}}</div>
         <img src="/frames/${{f.id}}.jpg?api_key=${{encodeURIComponent(API_KEY)}}" loading="lazy" onerror="this.style.background='#1e1e3a'">
         <div class="frame-meta">
           <div class="frame-time">${{time}}</div>
@@ -662,6 +701,83 @@ async function doLabel(label) {{
     }});
     if (!r.ok) throw new Error(await r.text());
     closeModal();
+    loadStats();
+    loadFrames();
+  }} catch(e) {{ alert('Chyba: ' + e.message); }}
+}}
+
+function handleCardClick(id, ch, time, conf, label) {{
+  if (selectMode) {{
+    toggleSelect(id);
+  }} else {{
+    openModal(id, ch, time, conf, label);
+  }}
+}}
+
+function toggleSelectMode() {{
+  selectMode = !selectMode;
+  selectedIds.clear();
+  const btn = document.getElementById('btnSelectMode');
+  const grid = document.getElementById('grid');
+  btn.classList.toggle('active', selectMode);
+  btn.textContent = selectMode ? 'Zrusit vyber' : 'Vyber viac';
+  grid.classList.toggle('select-mode', selectMode);
+  updateBulkBar();
+  loadFrames();
+}}
+
+function toggleSelect(id) {{
+  if (selectedIds.has(id)) {{
+    selectedIds.delete(id);
+  }} else {{
+    selectedIds.add(id);
+  }}
+  const card = document.getElementById('card-' + id);
+  if (card) {{
+    card.classList.toggle('selected', selectedIds.has(id));
+    const check = card.querySelector('.select-check');
+    if (check) check.textContent = selectedIds.has(id) ? '✓' : '';
+  }}
+  updateBulkBar();
+}}
+
+function selectAll() {{
+  document.querySelectorAll('.frame-card').forEach(card => {{
+    const id = parseInt(card.id.replace('card-', ''));
+    if (!isNaN(id)) {{
+      selectedIds.add(id);
+      card.classList.add('selected');
+      const check = card.querySelector('.select-check');
+      if (check) check.textContent = '✓';
+    }}
+  }});
+  updateBulkBar();
+}}
+
+function updateBulkBar() {{
+  const bar = document.getElementById('bulkBar');
+  const count = document.getElementById('bulkCount');
+  const n = selectedIds.size;
+  if (selectMode && n > 0) {{
+    bar.classList.add('visible');
+    count.textContent = n + ' vybratych';
+  }} else {{
+    bar.classList.remove('visible');
+  }}
+}}
+
+async function doBulkLabel(label) {{
+  if (selectedIds.size === 0) return;
+  const ids = Array.from(selectedIds);
+  try {{
+    const r = await fetch('/v1/history/frames/bulk-label', {{
+      method: 'POST',
+      headers: {{'X-API-Key': API_KEY, 'Content-Type': 'application/json'}},
+      body: JSON.stringify({{ids, label, device_id: DEVICE_ID}}),
+    }});
+    if (!r.ok) throw new Error(await r.text());
+    selectedIds.clear();
+    updateBulkBar();
     loadStats();
     loadFrames();
   }} catch(e) {{ alert('Chyba: ' + e.message); }}
