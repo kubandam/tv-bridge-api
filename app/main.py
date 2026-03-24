@@ -8,7 +8,7 @@ from app.routers.device import router as device_router
 from app.routers.monitor import router as monitor_router, monitor_dashboard
 from app.routers.rpi import router as rpi_router
 from app.routers.labeling import router as labeling_router, labeling_dashboard
-from app.routers.review import router as review_router, review_dashboard
+from app.routers.review import router as review_router, review_dashboard, admin_dashboard, serve_frame_image
 
 logger = logging.getLogger(__name__)
 
@@ -85,3 +85,9 @@ app.include_router(
 
 # Public review dashboard
 app.get("/review")(review_dashboard)
+
+# Public admin dashboard
+app.get("/admin")(admin_dashboard)
+
+# Public frame image proxy (api_key in query param, for <img src> use)
+app.get("/frames/{frame_id}.jpg")(serve_frame_image)

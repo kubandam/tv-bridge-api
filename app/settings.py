@@ -8,11 +8,21 @@ class Settings(BaseSettings):
 
     database_url: str
     api_key: str
-    # Optional: if clients don't send X-Device-Id header, server can fall back to this
     default_device_id: str | None = None
 
-    # Image log settings
-    max_image_log_size: int = 100  # Max images to keep in log per device
-    heartbeat_timeout_seconds: int = 30  # Consider offline after this many seconds
+    # Heartbeat
+    heartbeat_timeout_seconds: int = 30
+
+    # How often to sample frames into frame_history (seconds)
+    history_sample_interval_s: int = 3
+
+    # Cloudflare R2 (S3-compatible)
+    account_id: str
+    access_key: str
+    secret_access_key: str
+    r2_bucket_name: str = "tv-frames"
+
+    # Image log (legacy in-memory)
+    max_image_log_size: int = 100
 
 settings = Settings()

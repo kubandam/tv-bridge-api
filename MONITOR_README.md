@@ -2,7 +2,7 @@
 
 ## 📊 URL Dashboard
 ```
-https://tv-bridge-api.onrender.com/monitor?api_key=BX5SXQVhiiRQxoSCWWqV2pE6M1nBF6Pg
+https://tv-bridge-api-ih76.onrender.com/monitor?api_key=BX5SXQVhiiRQxoSCWWqV2pE6M1nBF6Pg
 ```
 
 ## ✅ Čo je implementované

@@ -222,9 +222,10 @@ class LabeledFrameDB(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     device_id: str = Field(index=True)
+    channel: Optional[str] = Field(default=None, index=True)  # e.g. "CT:1"
 
     label: str = Field(index=True)  # ad | program | transition
-    image_base64: str  # JPEG image data
+    image_key: str  # R2 object key
     ai_was_ad: Optional[bool] = None  # What the AI predicted at the time
     ai_confidence: Optional[float] = None  # AI confidence at the time
     is_override: bool = False  # True if user disagreed with AI prediction
@@ -251,22 +252,23 @@ class RpiDaemonStatusDB(SQLModel, table=True):
 class FrameHistoryDB(SQLModel, table=True):
     """
     Sampled historical frames from RPi for retrospective labeling.
-    Saved at ~1 frame / 5 seconds. Capped at MAX_HISTORY_UNLABELED unlabeled rows.
-    label=None means unlabeled. Labeled frames are never auto-deleted.
+    Saved at configurable interval (default 3s). Capped at MAX_HISTORY_UNLABELED unlabeled rows.
+    label=None means PENDING (not yet labeled). Labeled frames are never auto-deleted.
     """
 
     __tablename__ = "frame_history"
 
     id: Optional[int] = Field(default=None, primary_key=True)
     device_id: str = Field(index=True)
+    channel: Optional[str] = Field(default=None, index=True)  # e.g. "CT:1"
 
-    image_base64: str
+    image_key: str  # R2 object key
     is_ad: bool = Field(index=True)       # AI prediction at capture time
     confidence: Optional[float] = None
     captured_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=utcnow, index=True)
 
-    # Set when user reviews
+    # Set when user reviews — None = PENDING
     label: Optional[str] = Field(default=None, index=True)  # ad | program | transition | None
     labeled_at: Optional[datetime] = None
     is_override: Optional[bool] = None  # True if user disagreed with AI

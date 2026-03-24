@@ -43,12 +43,9 @@ def label_current_frame(
 
     img_data = _latest_images[body.device_id]
 
-    # Get current AI prediction for override tracking
-    state = db.get(AdStateDB, body.device_id)
     ai_was_ad = img_data.get("is_ad")
     ai_confidence = img_data.get("confidence")
 
-    # Determine if this is an override (user disagrees with AI)
     is_override = False
     if ai_was_ad is not None:
         if body.label == "ad" and not ai_was_ad:
@@ -56,10 +53,18 @@ def label_current_frame(
         elif body.label in ("program", "transition") and ai_was_ad:
             is_override = True
 
+    # Upload live image to R2
+    import uuid as _uuid
+    from app.storage.r2 import upload_frame
+    image_bytes = base64.b64decode(img_data["image_base64"])
+    image_key = f"frames/{body.device_id}/live_{_uuid.uuid4()}.jpg"
+    upload_frame(image_bytes, image_key)
+
     frame = LabeledFrameDB(
         device_id=body.device_id,
+        channel=img_data.get("channel"),
         label=body.label,
-        image_base64=img_data["image_base64"],
+        image_key=image_key,
         ai_was_ad=ai_was_ad,
         ai_confidence=ai_confidence,
         is_override=is_override,
@@ -112,7 +117,8 @@ def get_labeled_frame_image(
     frame = db.get(LabeledFrameDB, frame_id)
     if not frame:
         raise HTTPException(status_code=404, detail="Frame not found")
-    image_bytes = base64.b64decode(frame.image_base64)
+    from app.storage.r2 import download_frame
+    image_bytes = download_frame(frame.image_key)
     return Response(content=image_bytes, media_type="image/jpeg")
 
 
@@ -125,6 +131,11 @@ def delete_labeled_frame(
     frame = db.get(LabeledFrameDB, frame_id)
     if not frame:
         raise HTTPException(status_code=404, detail="Frame not found")
+    from app.storage.r2 import delete_frame
+    try:
+        delete_frame(frame.image_key)
+    except Exception:
+        pass
     db.delete(frame)
     db.commit()
     return {"ok": True, "deleted_id": frame_id}
