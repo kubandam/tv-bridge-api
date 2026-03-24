@@ -12,6 +12,7 @@ from sqlmodel import Session, select, desc, func
 from app.db.engine import get_session
 from app.models import LabeledFrameDB, AdResultDB, AdStateDB, utcnow
 from app.settings import settings
+from app.ui import NAV_CSS, UNAUTH_HTML, NAV_STATUS_JS, nav_bar
 
 router = APIRouter(tags=["labeling"])
 
@@ -237,19 +238,9 @@ def labeling_dashboard(
     Web-based labeling and monitoring interface for TV ad detection.
     """
     if api_key != settings.api_key:
-        return HTMLResponse(
-            content="""
-            <html>
-            <head><title>TV Labeling Tool - Auth Required</title></head>
-            <body style="font-family: sans-serif; background: #1a1a2e; color: #eee; padding: 50px; text-align: center;">
-                <h1 style="color: #ff6b6b;">API Key Required</h1>
-                <p>Add <code>?api_key=YOUR_KEY</code> to the URL to access the labeling tool.</p>
-            </body>
-            </html>
-            """,
-            status_code=401,
-        )
+        return HTMLResponse(content=UNAUTH_HTML, status_code=401)
 
+    _nav = nav_bar(api_key, device_id, "labeling")
     html = f"""
 <!DOCTYPE html>
 <html>
@@ -531,15 +522,7 @@ def labeling_dashboard(
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>TV Ad Labeling Tool</h1>
-        <div class="header-info">
-            <span id="rpi-status"><span class="status-dot dot-offline"></span>RPi: checking...</span>
-            <span id="ai-status">AI: --</span>
-            <span>Device: {device_id}</span>
-            <span id="update-time">--</span>
-        </div>
-    </div>
+{_nav}
 
     <div class="main">
         <div class="grid">
@@ -977,6 +960,7 @@ def labeling_dashboard(
         setInterval(refreshGallery, 15000);
         setInterval(refreshSystemStatus, 5000);
     </script>
+    <script>{NAV_STATUS_JS}</script>
 </body>
 </html>
 """

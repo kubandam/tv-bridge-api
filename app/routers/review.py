@@ -14,6 +14,7 @@ from sqlmodel import Session, select, desc, func
 from app.db.engine import get_session
 from app.models import FrameHistoryDB, LabeledFrameDB, utcnow
 from app.settings import settings
+from app.ui import NAV_CSS, UNAUTH_HTML, NAV_STATUS_JS, nav_bar
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,8 @@ def list_frames(
 
     if filter == "unlabeled":
         stmt = stmt.where(FrameHistoryDB.label == None)
+    elif filter == "wrong":
+        stmt = stmt.where(FrameHistoryDB.is_override == True)
     elif filter in ("ad", "program", "transition"):
         stmt = stmt.where(FrameHistoryDB.label == filter)
 
@@ -78,8 +81,13 @@ def list_frames(
                 "is_ad": f.is_ad,
                 "confidence": f.confidence,
                 "label": f.label,
+                "is_override": f.is_override,
                 "captured_at": f.captured_at.isoformat() if f.captured_at else None,
                 "created_at": f.created_at.isoformat() if f.created_at else None,
+                "p_program": f.p_program,
+                "detect_time_ms": f.detect_time_ms,
+                "top_ad_prompt": f.top_ad_prompt,
+                "top_nonad_prompt": f.top_nonad_prompt,
             }
             for f in frames
         ],
@@ -374,13 +382,7 @@ def _auth_check(api_key: str) -> bool:
 
 
 def _unauth_html() -> HTMLResponse:
-    return HTMLResponse(
-        content="""<!DOCTYPE html><html><body style="background:#0f0f1a;color:#eee;
-        font-family:sans-serif;padding:50px;text-align:center">
-        <h1 style="color:#f87171">API Key Required</h1>
-        <p>Add <code>?api_key=YOUR_KEY</code> to the URL.</p></body></html>""",
-        status_code=401,
-    )
+    return HTMLResponse(content=UNAUTH_HTML, status_code=401)
 
 
 def review_dashboard(
@@ -390,6 +392,7 @@ def review_dashboard(
     if not _auth_check(api_key):
         return _unauth_html()
 
+    _nav = nav_bar(api_key, device_id, "review")
     html = f"""<!DOCTYPE html>
 <html lang="sk">
 <head>
@@ -397,16 +400,7 @@ def review_dashboard(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-*{{box-sizing:border-box;margin:0;padding:0}}
-body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f0f1a;color:#e2e8f0;min-height:100vh}}
-a{{color:inherit;text-decoration:none}}
-/* Header */
-.header{{background:#1a1a2e;border-bottom:1px solid #2d2d4e;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:200}}
-.header-left{{display:flex;align-items:center;gap:10px}}
-.header h1{{font-size:17px;font-weight:600;color:#a78bfa}}
-.device-badge{{background:#2d2d4e;color:#94a3b8;font-size:11px;padding:2px 8px;border-radius:20px}}
-.btn-admin{{background:#312e81;color:#a5b4fc;border:1px solid #4338ca;padding:6px 14px;border-radius:6px;font-size:13px;cursor:pointer;transition:background .15s}}
-.btn-admin:hover{{background:#3730a3}}
+{NAV_CSS}
 /* Channels */
 .channels{{background:#12122a;border-bottom:1px solid #1e1e3a;padding:0 20px;display:flex;gap:4px;overflow-x:auto}}
 .ch-tab{{padding:10px 16px;font-size:13px;color:#64748b;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;transition:color .15s}}
@@ -495,14 +489,7 @@ a{{color:inherit;text-decoration:none}}
 </style>
 </head>
 <body>
-
-<div class="header">
-  <div class="header-left">
-    <h1>TV Frame Review</h1>
-    <span class="device-badge">{device_id}</span>
-  </div>
-  <a href="/admin?api_key={api_key}" class="btn-admin">Admin</a>
-</div>
+{_nav}
 
 <div class="channels" id="channelsBar">
   <div class="ch-tab active" data-ch="">Vsetky</div>
@@ -522,6 +509,7 @@ a{{color:inherit;text-decoration:none}}
     <button class="filter-btn" data-filter="ad">Ad</button>
     <button class="filter-btn" data-filter="program">Program</button>
     <button class="filter-btn" data-filter="transition">Transition</button>
+    <button class="filter-btn" data-filter="wrong" style="border-color:#f87171;color:#f87171">AI chyby</button>
     <button class="btn-select" id="btnSelectMode" onclick="toggleSelectMode()">Vyber viac</button>
     <button class="btn-select-all" id="btnSelectAll" onclick="selectAll()">Vybrat vsetky</button>
   </div>
@@ -639,13 +627,14 @@ async function loadFrames() {{
         ? `<span class="badge badge-${{f.label}}">${{f.label}}</span>`
         : `<span class="badge badge-pending">PENDING</span>`;
       const isSel = selectedIds.has(f.id);
-      return `<div class="frame-card${{isSel ? ' selected' : ''}}" id="card-${{f.id}}" onclick="handleCardClick(${{f.id}}, '${{f.channel || ''}}', '${{time}}', ${{f.confidence}}, '${{f.label || ''}}')">
+      const overrideBadge = f.is_override ? `<span class="badge" style="background:#4a1d1d;color:#f87171;margin-left:4px">AI ✗</span>` : '';
+      return `<div class="frame-card${{isSel ? ' selected' : ''}}" id="card-${{f.id}}" onclick="handleCardClick(${{f.id}}, ${{JSON.stringify(f)}})">
         <div class="select-check">${{isSel ? '✓' : ''}}</div>
         <img src="/frames/${{f.id}}.jpg?api_key=${{encodeURIComponent(API_KEY)}}" loading="lazy" onerror="this.style.background='#1e1e3a'">
         <div class="frame-meta">
           <div class="frame-time">${{time}}</div>
           <div class="frame-conf">${{f.channel ? f.channel + ' · ' : ''}}${{conf}}</div>
-          ${{badge}}
+          ${{badge}}${{overrideBadge}}
         </div>
       </div>`;
     }}).join('');
@@ -673,16 +662,26 @@ function goPage(idx) {{
   window.scrollTo(0, 0);
 }}
 
-function openModal(id, ch, time, conf, label) {{
-  selectedId = id;
-  document.getElementById('modalImg').src = `/frames/${{id}}.jpg?api_key=${{encodeURIComponent(API_KEY)}}`;
-  const confStr = conf != null ? (conf * 100).toFixed(0) + '%' : '—';
-  const labelStr = label || 'PENDING';
+function openModal(f) {{
+  selectedId = f.id;
+  document.getElementById('modalImg').src = `/frames/${{f.id}}.jpg?api_key=${{encodeURIComponent(API_KEY)}}`;
+  const time = f.captured_at
+    ? new Date(f.captured_at).toLocaleString('sk-SK', {{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'}})
+    : '—';
+  const confAd = f.confidence != null ? (f.confidence * 100).toFixed(1) + '%' : '—';
+  const confProg = f.p_program != null ? (f.p_program * 100).toFixed(1) + '%' : '—';
+  const detectMs = f.detect_time_ms != null ? f.detect_time_ms + ' ms' : '—';
+  const override = f.is_override ? ' <span style="color:#f87171">(AI chybovalo)</span>' : '';
+  const topAd = f.top_ad_prompt || '—';
+  const topProg = f.top_nonad_prompt || '—';
   document.getElementById('modalInfo').innerHTML =
     `<strong>Cas:</strong> ${{time}}<br>
-     <strong>Kanal:</strong> ${{ch || '—'}}<br>
-     <strong>AI konf.:</strong> ${{confStr}}<br>
-     <strong>Status:</strong> ${{labelStr}}`;
+     <strong>Kanal:</strong> ${{f.channel || '—'}}<br>
+     <strong>Status:</strong> ${{f.label || 'PENDING'}}${{override}}<br>
+     <strong>AI p_ad:</strong> ${{confAd}} &nbsp; <strong>p_program:</strong> ${{confProg}}<br>
+     <strong>Inference:</strong> ${{detectMs}}<br>
+     <strong>Top ad prompt:</strong> <span style="color:#fca5a5;font-size:11px">${{topAd}}</span><br>
+     <strong>Top prog prompt:</strong> <span style="color:#86efac;font-size:11px">${{topProg}}</span>`;
   document.getElementById('modal').classList.add('open');
 }}
 
@@ -706,11 +705,11 @@ async function doLabel(label) {{
   }} catch(e) {{ alert('Chyba: ' + e.message); }}
 }}
 
-function handleCardClick(id, ch, time, conf, label) {{
+function handleCardClick(id, frame) {{
   if (selectMode) {{
     toggleSelect(id);
   }} else {{
-    openModal(id, ch, time, conf, label);
+    openModal(frame);
   }}
 }}
 
@@ -797,6 +796,7 @@ loadChannels();
 loadStats();
 loadFrames();
 </script>
+<script>{NAV_STATUS_JS}</script>
 </body>
 </html>"""
     return HTMLResponse(content=html)
@@ -809,6 +809,7 @@ def admin_dashboard(
     if not _auth_check(api_key):
         return _unauth_html()
 
+    _nav = nav_bar(api_key, device_id, "admin")
     html = f"""<!DOCTYPE html>
 <html lang="sk">
 <head>
@@ -816,12 +817,7 @@ def admin_dashboard(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-*{{box-sizing:border-box;margin:0;padding:0}}
-body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f0f1a;color:#e2e8f0;min-height:100vh}}
-.header{{background:#1a1a2e;border-bottom:1px solid #2d2d4e;padding:12px 20px;display:flex;align-items:center;justify-content:space-between}}
-.header h1{{font-size:17px;font-weight:600;color:#a78bfa}}
-.btn-back{{background:#1e1e3a;color:#94a3b8;border:1px solid #2d2d4e;padding:6px 14px;border-radius:6px;font-size:13px;cursor:pointer;text-decoration:none;display:inline-block}}
-.btn-back:hover{{border-color:#4338ca;color:#a5b4fc}}
+{NAV_CSS}
 .content{{max-width:800px;margin:0 auto;padding:24px 20px}}
 .section{{background:#1a1a2e;border:1px solid #2d2d4e;border-radius:10px;padding:20px;margin-bottom:20px}}
 .section h2{{font-size:14px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.8px;margin-bottom:16px}}
@@ -846,12 +842,7 @@ body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgro
 </style>
 </head>
 <body>
-
-<div class="header">
-  <h1>Admin — {device_id}</h1>
-  <a href="/review?api_key={api_key}&device_id={device_id}" class="btn-back">← Review</a>
-</div>
-
+{_nav}
 <div class="content">
 
   <div class="section">
@@ -978,6 +969,7 @@ async function deleteAll() {{
 
 load();
 </script>
+<script>{NAV_STATUS_JS}</script>
 </body>
 </html>"""
     return HTMLResponse(content=html)

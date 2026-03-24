@@ -97,6 +97,7 @@ class AdResultDB(SQLModel, table=True):
 
     is_ad: bool = Field(index=True)
     confidence: Optional[float] = Field(default=None)
+    channel: Optional[str] = Field(default=None, index=True)
 
     # When the frame was captured on-device (optional) vs when server received it (created_at).
     captured_at: Optional[datetime] = None
@@ -167,6 +168,7 @@ class RpiStatusDB(SQLModel, table=True):
     cpu_percent: Optional[float] = None
     memory_percent: Optional[float] = None
     disk_percent: Optional[float] = None
+    temperature_celsius: Optional[float] = None
 
     updated_at: datetime = Field(default_factory=utcnow)
 
@@ -249,6 +251,31 @@ class RpiDaemonStatusDB(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utcnow)
 
 
+class AdEventDB(SQLModel, table=True):
+    """
+    Permanent log of ad detection state transitions.
+    Unlike AdResultDB (rotating, 100 rows), this is never deleted.
+    Stores every ad_started / ad_ended event with timing and channel info.
+    """
+
+    __tablename__ = "ad_events"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    device_id: str = Field(index=True)
+
+    event_type: str = Field(index=True)  # "ad_started" | "ad_ended"
+    channel: Optional[str] = Field(default=None, index=True)
+
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+
+    # Filled on ad_ended
+    duration_seconds: Optional[float] = None   # how long the ad block lasted
+    avg_confidence: Optional[float] = None     # average CLIP confidence during the block
+
+    # Did auto-switch fire for this event?
+    switch_triggered: bool = False
+
+
 class FrameHistoryDB(SQLModel, table=True):
     """
     Sampled historical frames from RPi for retrospective labeling.
@@ -267,6 +294,13 @@ class FrameHistoryDB(SQLModel, table=True):
     confidence: Optional[float] = None
     captured_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=utcnow, index=True)
+
+    # CLIP debug info (extracted from RPi payload)
+    threshold: Optional[float] = None         # CLIP threshold active at capture time
+    p_program: Optional[float] = None         # CLIP p_program score
+    detect_time_ms: Optional[int] = None      # CLIP inference time in ms
+    top_ad_prompt: Optional[str] = None       # top matching ad prompt
+    top_nonad_prompt: Optional[str] = None    # top matching non-ad prompt
 
     # Set when user reviews — None = PENDING
     label: Optional[str] = Field(default=None, index=True)  # ad | program | transition | None

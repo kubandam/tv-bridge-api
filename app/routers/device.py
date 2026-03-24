@@ -13,7 +13,7 @@ from sqlmodel import Session, select
 from sqlalchemy import delete
 
 from app.db.engine import get_session
-from app.models import AdResultDB, AdStateDB, DeviceCommandDB, DeviceConfigDB, FrameHistoryDB, utcnow
+from app.models import AdResultDB, AdStateDB, AdEventDB, DeviceCommandDB, DeviceConfigDB, FrameHistoryDB, utcnow
 from app.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -82,6 +82,12 @@ def post_ad_result(
                 image_key = f"frames/{device_id}/{uuid.uuid4()}.jpg"
                 upload_frame(image_bytes, image_key)
 
+                payload = body.payload or {}
+                details = payload.get("details", {})
+                top_ad = details.get("top_ad_prompts", [{}])[0] if details.get("top_ad_prompts") else {}
+                top_nonad = details.get("top_nonad_prompts", [{}])[0] if details.get("top_nonad_prompts") else {}
+                detect_time = payload.get("detect_time")
+
                 hist = FrameHistoryDB(
                     device_id=device_id,
                     channel=body.channel,
@@ -89,6 +95,10 @@ def post_ad_result(
                     is_ad=body.is_ad,
                     confidence=body.confidence,
                     captured_at=body.captured_at,
+                    p_program=payload.get("p_program"),
+                    detect_time_ms=int(detect_time * 1000) if detect_time else None,
+                    top_ad_prompt=top_ad.get("prompt"),
+                    top_nonad_prompt=top_nonad.get("prompt"),
                 )
                 db.add(hist)
                 db.flush()
@@ -124,6 +134,7 @@ def post_ad_result(
         device_id=device_id,
         is_ad=body.is_ad,
         confidence=body.confidence,
+        channel=body.channel,
         captured_at=body.captured_at,
         payload=body.payload,
     )
@@ -138,11 +149,27 @@ def post_ad_result(
     was_ad_active = st.ad_active
     switch_command = None
 
+    pending_ad_event = None
     if body.is_ad:
         if not st.ad_active:
             st.ad_active = True
             st.ad_since = now
+            pending_ad_event = AdEventDB(
+                device_id=device_id,
+                event_type="ad_started",
+                channel=body.channel,
+            )
+            db.add(pending_ad_event)
     else:
+        if st.ad_active and st.ad_since:
+            duration = (now - st.ad_since).total_seconds()
+            pending_ad_event = AdEventDB(
+                device_id=device_id,
+                event_type="ad_ended",
+                channel=body.channel,
+                duration_seconds=round(duration, 1),
+            )
+            db.add(pending_ad_event)
         st.ad_active = False
         st.ad_since = None
 
@@ -171,6 +198,8 @@ def post_ad_result(
                 status="pending",
             )
             db.add(switch_command)
+            if pending_ad_event:
+                pending_ad_event.switch_triggered = True
         elif not body.is_ad and was_ad_active and config.original_channel:
             pending_cmds = db.exec(
                 select(DeviceCommandDB).where(
@@ -189,6 +218,8 @@ def post_ad_result(
                 status="pending",
             )
             db.add(switch_command)
+            if pending_ad_event:
+                pending_ad_event.switch_triggered = True
 
     # Rotate ad_results
     old_ids_stmt = (

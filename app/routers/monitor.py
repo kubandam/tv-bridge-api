@@ -9,8 +9,9 @@ from sqlalchemy import delete
 from sqlmodel import Session, select, desc
 
 from app.db.engine import get_session
-from app.models import AdResultDB, AdStateDB, DeviceCommandDB, DeviceConfigDB, RpiStatusDB, RpiCommandDB, RpiDaemonStatusDB, utcnow
+from app.models import AdResultDB, AdStateDB, AdEventDB, DeviceCommandDB, DeviceConfigDB, FrameHistoryDB, RpiStatusDB, RpiCommandDB, RpiDaemonStatusDB, utcnow
 from app.settings import settings
+from app.ui import NAV_CSS, UNAUTH_HTML, NAV_STATUS_JS, nav_bar
 
 router = APIRouter(tags=["monitor"])
 
@@ -188,6 +189,123 @@ def get_monitor_data(
     }
 
 
+@router.get("/monitor/ad-events")
+def get_ad_events(
+    device_id: str = Query(default="tv-1"),
+    limit: int = Query(default=100, ge=1, le=500),
+    channel: Optional[str] = Query(default=None),
+    db: Session = Depends(get_session),
+):
+    """
+    Permanent log of ad_started / ad_ended transitions.
+    Useful for analyzing when ads happen, how long they last, and switch accuracy.
+    """
+    stmt = (
+        select(AdEventDB)
+        .where(AdEventDB.device_id == device_id)
+        .order_by(desc(AdEventDB.id))
+        .limit(limit)
+    )
+    if channel:
+        stmt = stmt.where(AdEventDB.channel == channel)
+    events = db.exec(stmt).all()
+
+    ended = [e for e in events if e.event_type == "ad_ended" and e.duration_seconds is not None]
+    avg_duration = round(sum(e.duration_seconds for e in ended) / len(ended), 1) if ended else None
+    switches = sum(1 for e in events if e.switch_triggered)
+
+    return {
+        "device_id": device_id,
+        "total": len(events),
+        "avg_ad_duration_seconds": avg_duration,
+        "switches_triggered": switches,
+        "events": [
+            {
+                "id": e.id,
+                "event_type": e.event_type,
+                "channel": e.channel,
+                "created_at": e.created_at.isoformat(),
+                "duration_seconds": e.duration_seconds,
+                "switch_triggered": e.switch_triggered,
+            }
+            for e in events
+        ],
+    }
+
+
+@router.get("/monitor/accuracy")
+def get_accuracy(
+    device_id: str = Query(default="tv-1"),
+    channel: Optional[str] = Query(default=None),
+    db: Session = Depends(get_session),
+):
+    """
+    Compute AI accuracy from human-labeled frames.
+    Returns overall accuracy and per-channel breakdown.
+    """
+    stmt = (
+        select(FrameHistoryDB)
+        .where(FrameHistoryDB.device_id == device_id)
+        .where(FrameHistoryDB.label != None)
+    )
+    if channel:
+        stmt = stmt.where(FrameHistoryDB.channel == channel)
+    frames = db.exec(stmt).all()
+
+    if not frames:
+        return {"device_id": device_id, "total_labeled": 0, "accuracy": None, "by_channel": {}, "by_label": {}}
+
+    def is_correct(f):
+        if f.label == "ad":
+            return f.is_ad
+        return not f.is_ad  # program and transition both mean "not ad"
+
+    correct = sum(1 for f in frames if is_correct(f))
+    total = len(frames)
+    overrides = sum(1 for f in frames if f.is_override)
+
+    by_channel: dict = {}
+    for f in frames:
+        ch = f.channel or "(unknown)"
+        if ch not in by_channel:
+            by_channel[ch] = {"total": 0, "correct": 0, "overrides": 0}
+        by_channel[ch]["total"] += 1
+        if is_correct(f):
+            by_channel[ch]["correct"] += 1
+        if f.is_override:
+            by_channel[ch]["overrides"] += 1
+    for ch in by_channel:
+        t = by_channel[ch]["total"]
+        by_channel[ch]["accuracy"] = round(by_channel[ch]["correct"] / t * 100, 1) if t else None
+
+    by_label: dict = {}
+    for f in frames:
+        lbl = f.label
+        if lbl not in by_label:
+            by_label[lbl] = {"total": 0, "correct": 0}
+        by_label[lbl]["total"] += 1
+        if is_correct(f):
+            by_label[lbl]["correct"] += 1
+    for lbl in by_label:
+        t = by_label[lbl]["total"]
+        by_label[lbl]["accuracy"] = round(by_label[lbl]["correct"] / t * 100, 1) if t else None
+
+    # Confidence analysis: avg confidence on wrong predictions
+    wrong_frames = [f for f in frames if not is_correct(f) and f.confidence is not None]
+    avg_wrong_conf = round(sum(f.confidence for f in wrong_frames) / len(wrong_frames), 3) if wrong_frames else None
+
+    return {
+        "device_id": device_id,
+        "total_labeled": total,
+        "correct": correct,
+        "accuracy": round(correct / total * 100, 1),
+        "overrides": overrides,
+        "avg_confidence_on_wrong": avg_wrong_conf,
+        "by_channel": by_channel,
+        "by_label": by_label,
+    }
+
+
 @router.delete("/monitor/commands")
 def clear_device_commands(
     device_id: str = Query(default="tv-1"),
@@ -211,19 +329,9 @@ def monitor_dashboard(
     HTML dashboard for monitoring and controlling the TV Bridge system.
     """
     if api_key != settings.api_key:
-        return HTMLResponse(
-            content="""
-            <html>
-            <head><title>TV Bridge - Auth Required</title></head>
-            <body style="font-family: sans-serif; background: #1a1a2e; color: #eee; padding: 50px; text-align: center;">
-                <h1 style="color: #ff6b6b;">API Key Required</h1>
-                <p>Add <code>?api_key=YOUR_KEY</code> to the URL to access the dashboard.</p>
-            </body>
-            </html>
-            """,
-            status_code=401
-        )
+        return HTMLResponse(content=UNAUTH_HTML, status_code=401)
 
+    _nav = nav_bar(api_key, device_id, "monitor")
     html = f"""
 <!DOCTYPE html>
 <html>
@@ -231,26 +339,7 @@ def monitor_dashboard(
     <title>TV Bridge Monitor - {device_id}</title>
     <meta charset="utf-8">
     <style>
-        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #0f0f1a;
-            color: #eee;
-            min-height: 100vh;
-        }}
-        .header {{
-            background: #1a1a2e;
-            padding: 15px 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid #2a2a4e;
-            position: sticky;
-            top: 0;
-            z-index: 100;
-        }}
-        .header h1 {{ font-size: 20px; color: #FFD33D; }}
-        .header-info {{ display: flex; gap: 20px; align-items: center; font-size: 12px; color: #888; }}
+        {NAV_CSS}
         .main {{ padding: 20px; }}
         .grid {{ display: grid; grid-template-columns: 380px 1fr; gap: 20px; }}
         .card {{
@@ -503,14 +592,7 @@ def monitor_dashboard(
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>TV Bridge Monitor</h1>
-        <div class="header-info">
-            <span>Device: <strong>{device_id}</strong></span>
-            <span id="update-time">Connecting...</span>
-        </div>
-    </div>
-
+{_nav}
     <div class="main">
         <div class="stats-row">
             <div class="stat-box">
@@ -1253,6 +1335,7 @@ def monitor_dashboard(
             if (e.key === 'Escape') closeModal();
         }});
     </script>
+    <script>{NAV_STATUS_JS}</script>
 </body>
 </html>
 """

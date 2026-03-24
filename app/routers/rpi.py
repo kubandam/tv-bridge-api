@@ -52,6 +52,7 @@ class HeartbeatIn(BaseModel):
     cpu_percent: Optional[float] = None
     memory_percent: Optional[float] = None
     disk_percent: Optional[float] = None
+    temperature_celsius: Optional[float] = None
 
 
 class CommandIn(BaseModel):
@@ -101,6 +102,7 @@ def post_heartbeat(
     status.cpu_percent = body.cpu_percent
     status.memory_percent = body.memory_percent
     status.disk_percent = body.disk_percent
+    status.temperature_celsius = body.temperature_celsius
     status.updated_at = now
 
     db.add(status)
