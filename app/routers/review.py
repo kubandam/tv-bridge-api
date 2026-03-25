@@ -50,7 +50,7 @@ def list_frames(
     device_id: str = Query(default="tv-1"),
     channel: Optional[str] = Query(default=None),
     filter: str = Query(default="unlabeled", description="unlabeled | all | ad | program | transition"),
-    limit: int = Query(default=24, ge=1, le=100),
+    limit: int = Query(default=40, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_session),
 ):
@@ -548,7 +548,7 @@ def review_dashboard(
 <script>
 const API_KEY = new URLSearchParams(location.search).get('api_key') || '';
 const DEVICE_ID = '{device_id}';
-const PAGE_SIZE = 24;
+const PAGE_SIZE = 40;
 
 let channel = '';
 let filter = 'unlabeled';
