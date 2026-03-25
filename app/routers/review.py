@@ -557,6 +557,7 @@ let total = 0;
 let selectedId = null;
 let selectMode = false;
 let selectedIds = new Set();
+let framesMap = {{}};
 
 const hdr = () => ({{headers:{{'X-API-Key': API_KEY}}}});
 
@@ -618,6 +619,9 @@ async function loadFrames() {{
       return;
     }}
 
+    framesMap = {{}};
+    d.items.forEach(f => {{ framesMap[f.id] = f; }});
+
     grid.innerHTML = d.items.map(f => {{
       const time = f.captured_at
         ? new Date(f.captured_at).toLocaleString('sk-SK', {{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'}})
@@ -628,7 +632,7 @@ async function loadFrames() {{
         : `<span class="badge badge-pending">PENDING</span>`;
       const isSel = selectedIds.has(f.id);
       const overrideBadge = f.is_override ? `<span class="badge" style="background:#4a1d1d;color:#f87171;margin-left:4px">AI ✗</span>` : '';
-      return `<div class="frame-card${{isSel ? ' selected' : ''}}" id="card-${{f.id}}" onclick="handleCardClick(${{f.id}}, ${{JSON.stringify(f)}})">
+      return `<div class="frame-card${{isSel ? ' selected' : ''}}" id="card-${{f.id}}" onclick="handleCardClick(${{f.id}})">
         <div class="select-check">${{isSel ? '✓' : ''}}</div>
         <img src="/frames/${{f.id}}.jpg?api_key=${{encodeURIComponent(API_KEY)}}" loading="lazy" onerror="this.style.background='#1e1e3a'">
         <div class="frame-meta">
@@ -705,11 +709,11 @@ async function doLabel(label) {{
   }} catch(e) {{ alert('Chyba: ' + e.message); }}
 }}
 
-function handleCardClick(id, frame) {{
+function handleCardClick(id) {{
   if (selectMode) {{
     toggleSelect(id);
   }} else {{
-    openModal(frame);
+    openModal(framesMap[id]);
   }}
 }}
 
