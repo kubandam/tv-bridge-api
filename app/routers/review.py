@@ -558,6 +558,8 @@ let selectedId = null;
 let selectMode = false;
 let selectedIds = new Set();
 let framesMap = {{}};
+let frameOrder = [];
+let lastClickedId = null;
 
 const hdr = () => ({{headers:{{'X-API-Key': API_KEY}}}});
 
@@ -621,8 +623,9 @@ async function loadFrames() {{
 
     framesMap = {{}};
     d.items.forEach(f => {{ framesMap[f.id] = f; }});
+    frameOrder = d.items.map(f => f.id);
 
-    grid.innerHTML = d.items.map(f => {{
+    grid.innerHTML = d.items.map((f, idx) => {{
       const time = f.captured_at
         ? new Date(f.captured_at).toLocaleString('sk-SK', {{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'}})
         : '—';
@@ -632,7 +635,7 @@ async function loadFrames() {{
         : `<span class="badge badge-pending">PENDING</span>`;
       const isSel = selectedIds.has(f.id);
       const overrideBadge = f.is_override ? `<span class="badge" style="background:#4a1d1d;color:#f87171;margin-left:4px">AI ✗</span>` : '';
-      return `<div class="frame-card${{isSel ? ' selected' : ''}}" id="card-${{f.id}}" onclick="handleCardClick(${{f.id}})">
+      return `<div class="frame-card${{isSel ? ' selected' : ''}}" id="card-${{f.id}}" data-idx="${{idx}}" onclick="handleCardClick(event,${{f.id}})">
         <div class="select-check">${{isSel ? '✓' : ''}}</div>
         <img src="/frames/${{f.id}}.jpg?api_key=${{encodeURIComponent(API_KEY)}}" loading="lazy" onerror="this.style.background='#1e1e3a'">
         <div class="frame-meta">
@@ -709,24 +712,81 @@ async function doLabel(label) {{
   }} catch(e) {{ alert('Chyba: ' + e.message); }}
 }}
 
-function handleCardClick(id) {{
+function handleCardClick(event, id) {{
+  if (event.shiftKey && lastClickedId !== null) {{
+    enterSelectMode();
+    selectRange(lastClickedId, id);
+    lastClickedId = id;
+    return;
+  }}
+  if (event.ctrlKey || event.metaKey) {{
+    enterSelectMode();
+    toggleSelect(id);
+    lastClickedId = id;
+    if (selectedIds.size === 0) exitSelectMode();
+    return;
+  }}
   if (selectMode) {{
     toggleSelect(id);
-  }} else {{
-    openModal(framesMap[id]);
+    lastClickedId = id;
+    if (selectedIds.size === 0) exitSelectMode();
+    return;
   }}
+  lastClickedId = id;
+  openModal(framesMap[id]);
+}}
+
+function enterSelectMode() {{
+  if (selectMode) return;
+  selectMode = true;
+  const btn = document.getElementById('btnSelectMode');
+  btn.classList.add('active');
+  btn.textContent = 'Zrusit vyber';
+  document.getElementById('grid').classList.add('select-mode');
+}}
+
+function exitSelectMode() {{
+  selectMode = false;
+  selectedIds.clear();
+  lastClickedId = null;
+  const btn = document.getElementById('btnSelectMode');
+  btn.classList.remove('active');
+  btn.textContent = 'Vyber viac';
+  document.getElementById('grid').classList.remove('select-mode');
+  document.querySelectorAll('.frame-card.selected').forEach(c => {{
+    c.classList.remove('selected');
+    const ch = c.querySelector('.select-check');
+    if (ch) ch.textContent = '';
+  }});
+  updateBulkBar();
 }}
 
 function toggleSelectMode() {{
-  selectMode = !selectMode;
-  selectedIds.clear();
-  const btn = document.getElementById('btnSelectMode');
-  const grid = document.getElementById('grid');
-  btn.classList.toggle('active', selectMode);
-  btn.textContent = selectMode ? 'Zrusit vyber' : 'Vyber viac';
-  grid.classList.toggle('select-mode', selectMode);
+  if (selectMode) {{
+    exitSelectMode();
+    loadFrames();
+  }} else {{
+    enterSelectMode();
+  }}
+}}
+
+function selectRange(fromId, toId) {{
+  const fromIdx = frameOrder.indexOf(fromId);
+  const toIdx = frameOrder.indexOf(toId);
+  if (fromIdx === -1 || toIdx === -1) {{ toggleSelect(toId); return; }}
+  const start = Math.min(fromIdx, toIdx);
+  const end = Math.max(fromIdx, toIdx);
+  for (let i = start; i <= end; i++) {{
+    const rid = frameOrder[i];
+    selectedIds.add(rid);
+    const card = document.getElementById('card-' + rid);
+    if (card) {{
+      card.classList.add('selected');
+      const check = card.querySelector('.select-check');
+      if (check) check.textContent = '✓';
+    }}
+  }}
   updateBulkBar();
-  loadFrames();
 }}
 
 function toggleSelect(id) {{
