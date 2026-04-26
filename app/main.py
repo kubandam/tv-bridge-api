@@ -5,7 +5,7 @@ from sqlmodel import Session
 from app.db.engine import create_db_and_tables, get_session
 from app.settings import settings
 from app.routers.device import router as device_router
-from app.routers.monitor import router as monitor_router, monitor_dashboard
+from app.routers.monitor import router as monitor_router, monitor_dashboard, live_dashboard
 from app.routers.rpi import router as rpi_router
 from app.routers.labeling import router as labeling_router, labeling_dashboard
 from app.routers.review import router as review_router, review_dashboard, admin_dashboard, serve_frame_image
@@ -72,6 +72,9 @@ app.include_router(
 
 # Public monitor dashboard (api_key passed as query param and validated internally)
 app.get("/monitor")(monitor_dashboard)
+
+# Public live dashboard
+app.get("/live")(live_dashboard)
 
 # Public labeling dashboard (api_key passed as query param and validated internally)
 app.get("/labeling")(labeling_dashboard)

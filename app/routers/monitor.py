@@ -1340,3 +1340,486 @@ def monitor_dashboard(
 </html>
 """
     return HTMLResponse(content=html)
+
+
+def live_dashboard(
+    device_id: str = Query(default="tv-1"),
+    api_key: str = Query(default=""),
+):
+    if api_key != settings.api_key:
+        return HTMLResponse(content=UNAUTH_HTML, status_code=401)
+
+    _nav = nav_bar(api_key, device_id, "live")
+    return HTMLResponse(content=_build_live_html(api_key, device_id, _nav))
+
+
+def _build_live_html(api_key: str, device_id: str, nav_html: str) -> str:
+    return f"""<!DOCTYPE html>
+<html lang="sk">
+<head>
+<title>Live Detection</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+{NAV_CSS}
+:root{{--ad:#ef4444;--prog:#22c55e;--dim:#0a0a18;--card:#1a1a2e;--border:#1e1e3a;--mu:#64748b;--tx:#e2e8f0}}
+.banner{{display:flex;align-items:center;justify-content:space-between;padding:20px 28px;transition:background .4s,border-color .4s;border-bottom:2px solid var(--border);gap:20px;flex-wrap:wrap}}
+.banner.is-ad{{background:linear-gradient(135deg,#450a0a 0%,#7f1d1d 100%);border-color:#ef4444}}
+.banner.is-prog{{background:linear-gradient(135deg,#052e16 0%,#14532d 100%);border-color:#22c55e}}
+.banner.is-uk{{background:linear-gradient(135deg,#0f0f1a 0%,#1a1a2e 100%);border-color:var(--border)}}
+.s-pill{{display:flex;align-items:center;gap:14px}}
+.s-ico{{font-size:42px;line-height:1}}
+.s-lbl{{font-size:32px;font-weight:800;letter-spacing:-.5px;line-height:1}}
+.s-sub{{font-size:13px;color:rgba(255,255,255,.6);margin-top:3px}}
+.chips{{display:flex;gap:16px;flex-wrap:wrap}}
+.chip{{background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:12px 20px;text-align:center;min-width:90px}}
+.chip .v{{font-size:22px;font-weight:700;line-height:1}}
+.chip .l{{font-size:10px;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:.6px;margin-top:3px}}
+.pulse{{animation:pulse 1.2s infinite}}
+@keyframes pulse{{0%,100%{{opacity:1}}50%{{opacity:.4}}}}
+.main{{padding:16px 20px;display:grid;grid-template-columns:1fr 1fr;gap:16px}}
+@media(max-width:900px){{.main{{grid-template-columns:1fr}}}}
+.col{{display:flex;flex-direction:column;gap:16px}}
+.card{{background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden}}
+.card-hd{{padding:11px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}}
+.card-ti{{font-size:12px;font-weight:600;color:var(--mu);text-transform:uppercase;letter-spacing:.6px}}
+.cb{{padding:16px}}
+.frame-wrap{{position:relative;background:#080810;border-radius:6px;overflow:hidden;aspect-ratio:16/9;cursor:pointer}}
+.frame-wrap img{{width:100%;height:100%;object-fit:cover;display:block}}
+.frame-empty{{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:8px;color:var(--mu)}}
+.f-ov{{position:absolute;bottom:0;left:0;right:0;padding:10px 12px;background:linear-gradient(transparent,rgba(0,0,0,.85));display:flex;align-items:center;justify-content:space-between}}
+.fbadge{{font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:.5px}}
+.fbadge.ad{{background:#ef4444;color:#fff}}
+.fbadge.prog{{background:#22c55e;color:#000}}
+.cbar{{height:4px;background:rgba(255,255,255,.1);border-radius:2px;overflow:hidden;margin-top:8px}}
+.cfill{{height:100%;border-radius:2px;transition:width .4s,background .4s}}
+.cfill.ad{{background:var(--ad)}}
+.cfill.prog{{background:var(--prog)}}
+.chart-wrap{{position:relative;height:160px}}
+.thumbs{{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:4px}}
+.thumb{{position:relative;aspect-ratio:16/9;border-radius:5px;overflow:hidden;cursor:pointer;background:#0a0a18}}
+.thumb img{{width:100%;height:100%;object-fit:cover;display:block;transition:transform .15s}}
+.thumb:hover img{{transform:scale(1.05)}}
+.tdot{{position:absolute;top:5px;right:5px;width:8px;height:8px;border-radius:50%;border:1.5px solid rgba(0,0,0,.5)}}
+.tdot.ad{{background:var(--ad)}}
+.tdot.prog{{background:var(--prog)}}
+.tconf{{position:absolute;bottom:4px;left:5px;font-size:9px;color:#fff;font-weight:600;text-shadow:0 1px 3px rgba(0,0,0,.8)}}
+.rpi-grid{{display:grid;grid-template-columns:1fr 1fr;gap:8px}}
+.rtile{{background:var(--dim);border-radius:7px;padding:12px;text-align:center}}
+.rtile .v{{font-size:20px;font-weight:700;line-height:1}}
+.rtile .l{{font-size:10px;color:var(--mu);margin-top:3px;text-transform:uppercase;letter-spacing:.5px}}
+.rtile .bar{{height:3px;border-radius:2px;margin-top:8px;background:#2d2d4e;overflow:hidden}}
+.rtile .bf{{height:100%;border-radius:2px;transition:width .4s}}
+.odot{{width:8px;height:8px;border-radius:50%;display:inline-block}}
+.odot.on{{background:#22c55e;box-shadow:0 0 6px #22c55e88;animation:pulse 2s infinite}}
+.odot.off{{background:#475569}}
+.ev-list{{max-height:220px;overflow-y:auto}}
+.ev-row{{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px}}
+.ev-row:last-child{{border:none}}
+.ev-ico{{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0}}
+.ev-ico.started{{background:#450a0a;color:#f87171}}
+.ev-ico.ended{{background:#052e16;color:#4ade80}}
+.ev-dur{{margin-left:auto;color:var(--mu);font-size:11px;white-space:nowrap}}
+.ev-time{{color:var(--mu);font-size:10px;min-width:45px;flex-shrink:0}}
+.acc-row{{display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px}}
+.acc-row:last-child{{border:none}}
+.acc-lbl{{color:var(--mu)}}
+.tag{{font-size:10px;padding:2px 7px;border-radius:20px;font-weight:600;text-transform:uppercase}}
+.tg{{background:#052e16;color:#4ade80}}
+.tr{{background:#450a0a;color:#f87171}}
+.ty{{background:#1e1e3a;color:#64748b}}
+.modal{{display:none;position:fixed;inset:0;z-index:1000;align-items:center;justify-content:center;background:rgba(0,0,0,.85);backdrop-filter:blur(4px)}}
+.modal.open{{display:flex}}
+.mi{{max-width:80vw;max-height:90vh;border-radius:10px;overflow:hidden;background:var(--card);border:1px solid var(--border)}}
+.mi img{{display:block;max-width:100%;max-height:80vh}}
+.mfoot{{padding:10px 14px;font-size:12px;color:var(--mu);display:flex;justify-content:space-between;align-items:center}}
+</style>
+</head>
+<body>
+{nav_html}
+
+<div class="banner is-uk" id="banner">
+  <div class="s-pill">
+    <div class="s-ico" id="sIco">📡</div>
+    <div>
+      <div class="s-lbl" id="sLbl">Načítavam...</div>
+      <div class="s-sub" id="sSub">Čakám na dáta</div>
+    </div>
+  </div>
+  <div class="chips">
+    <div class="chip"><div class="v" id="cConf">—</div><div class="l">Confidence</div></div>
+    <div class="chip"><div class="v" id="cRate">—</div><div class="l">Ad rate / 1h</div></div>
+    <div class="chip"><div class="v" id="cDur">—</div><div class="l">Avg ad dĺžka</div></div>
+    <div class="chip"><div class="v" id="cProc">—</div><div class="l">Spracované</div></div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="col">
+
+    <div class="card">
+      <div class="card-hd">
+        <span class="card-ti">Posledný frame</span>
+        <span style="font-size:11px;color:var(--mu)" id="fTs">—</span>
+      </div>
+      <div class="cb">
+        <div class="frame-wrap" id="fWrap" onclick="openModal(this.dataset.src, this.dataset.meta)">
+          <div class="frame-empty" id="fEmpty"><div style="font-size:40px">📡</div><div style="font-size:12px">Čakám na frame...</div></div>
+          <img id="fImg" src="" alt="" style="display:none">
+          <div class="f-ov" id="fOv" style="display:none">
+            <span class="fbadge" id="fBadge">—</span>
+            <span style="font-size:11px;color:rgba(255,255,255,.7)" id="fConf">—</span>
+          </div>
+        </div>
+        <div class="cbar"><div class="cfill prog" id="cFill" style="width:0"></div></div>
+        <div style="font-size:10px;color:var(--mu);margin-top:5px;text-align:right" id="fMeta">—</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hd">
+        <span class="card-ti">RPi štatistiky</span>
+        <div style="display:flex;align-items:center;gap:6px;font-size:12px">
+          <span class="odot off" id="rpiDot"></span>
+          <span id="rpiTxt" style="color:var(--mu)">—</span>
+        </div>
+      </div>
+      <div class="cb">
+        <div class="rpi-grid">
+          <div class="rtile"><div class="v" id="rCpu">—</div><div class="l">CPU %</div><div class="bar"><div class="bf" id="rCpuB" style="width:0;background:#a78bfa"></div></div></div>
+          <div class="rtile"><div class="v" id="rMem">—</div><div class="l">Pamäť %</div><div class="bar"><div class="bf" id="rMemB" style="width:0;background:#60a5fa"></div></div></div>
+          <div class="rtile"><div class="v" id="rTemp">—</div><div class="l">Teplota °C</div><div class="bar"><div class="bf" id="rTempB" style="width:0;background:#fb923c"></div></div></div>
+          <div class="rtile"><div class="v" id="rAds">—</div><div class="l">Reklamy celkom</div><div class="bar"><div class="bf" id="rAdsB" style="width:0;background:#f87171"></div></div></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <div style="flex:1;background:var(--dim);border-radius:6px;padding:8px;text-align:center;font-size:11px"><div style="color:var(--mu);margin-bottom:2px">Capture</div><div id="rCap" style="font-weight:600">—</div></div>
+          <div style="flex:1;background:var(--dim);border-radius:6px;padding:8px;text-align:center;font-size:11px"><div style="color:var(--mu);margin-bottom:2px">Detect</div><div id="rDet" style="font-weight:600">—</div></div>
+          <div style="flex:1;background:var(--dim);border-radius:6px;padding:8px;text-align:center;font-size:11px"><div style="color:var(--mu);margin-bottom:2px">Heartbeat</div><div id="rHb" style="font-weight:600;font-size:10px">—</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hd">
+        <span class="card-ti">Presnosť AI (labelované framy)</span>
+        <span id="accTot" style="font-size:11px;color:var(--mu)">—</span>
+      </div>
+      <div class="cb" id="accBody"><div style="text-align:center;color:var(--mu);font-size:12px;padding:20px">Načítavam...</div></div>
+    </div>
+
+  </div>
+  <div class="col">
+
+    <div class="card">
+      <div class="card-hd">
+        <span class="card-ti">Confidence timeline (posledných 50)</span>
+        <span style="font-size:11px;color:var(--mu)" id="chTs">—</span>
+      </div>
+      <div class="cb"><div class="chart-wrap"><canvas id="confChart"></canvas></div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-hd">
+        <span class="card-ti">Posledné framy (10)</span>
+        <span style="font-size:11px;color:var(--mu)" id="thTs">—</span>
+      </div>
+      <div class="cb"><div class="thumbs" id="thumbs"><div style="grid-column:1/-1;text-align:center;color:var(--mu);padding:20px;font-size:12px">Načítavam...</div></div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-hd">
+        <span class="card-ti">Ad udalosti (posledných 20)</span>
+        <div style="display:flex;gap:12px">
+          <span id="evDur" style="font-size:11px;color:var(--mu)">Priem.: —</span>
+          <span id="evSw" style="font-size:11px;color:var(--mu)">Prepnutí: —</span>
+        </div>
+      </div>
+      <div class="cb"><div class="ev-list" id="evList"><div style="text-align:center;color:var(--mu);padding:20px;font-size:12px">Načítavam...</div></div></div>
+    </div>
+
+  </div>
+</div>
+
+<div class="modal" id="modal" onclick="closeModal()">
+  <div class="mi" onclick="event.stopPropagation()">
+    <img id="mImg" src="" alt="">
+    <div class="mfoot">
+      <span id="mMeta" style="font-size:11px"></span>
+      <button onclick="closeModal()" style="background:none;border:none;color:var(--mu);cursor:pointer;font-size:13px">Zatvoriť ×</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const AK = '{api_key}', DID = '{device_id}';
+const hdr = () => ({{headers:{{'X-API-Key': AK}}}});
+
+function fmt(iso) {{
+  if (!iso) return '—';
+  return new Date(iso).toLocaleTimeString('sk-SK', {{hour:'2-digit',minute:'2-digit',second:'2-digit'}});
+}}
+function ago(iso) {{
+  if (!iso) return '—';
+  const s = Math.floor((Date.now() - new Date(iso)) / 1000);
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.floor(s/60) + 'm';
+  return Math.floor(s/3600) + 'h';
+}}
+function dur(s) {{
+  if (s == null) return '—';
+  return s < 60 ? s.toFixed(0) + 's' : (s/60).toFixed(1) + 'min';
+}}
+function esc(s) {{
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}}
+function txt(id, val) {{ document.getElementById(id).textContent = val; }}
+
+// Chart
+const ctx = document.getElementById('confChart').getContext('2d');
+const chart = new Chart(ctx, {{
+  type: 'line',
+  data: {{
+    labels: [],
+    datasets: [
+      {{ label: 'Confidence', data: [], borderColor: '#a78bfa', backgroundColor: 'rgba(167,139,250,.08)',
+         borderWidth: 1.5, pointRadius: 2.5, pointHoverRadius: 5, tension: 0.3, fill: true,
+         pointBackgroundColor: [] }},
+      {{ label: 'Threshold', data: [], borderColor: 'rgba(248,113,113,.5)', borderWidth: 1,
+         pointRadius: 0, borderDash: [4,3], fill: false }},
+    ],
+  }},
+  options: {{
+    responsive: true, maintainAspectRatio: false, animation: {{ duration: 300 }},
+    plugins: {{ legend: {{ display: false }},
+      tooltip: {{ callbacks: {{ label: c => (c.parsed.y*100).toFixed(1)+'%' }} }} }},
+    scales: {{
+      x: {{ ticks: {{ color:'#475569', maxTicksLimit:8, maxRotation:0, font:{{size:9}} }}, grid: {{ color:'#1e1e3a' }} }},
+      y: {{ min:0, max:1,
+        ticks: {{ color:'#475569', callback: v => (v*100).toFixed(0)+'%', font:{{size:9}} }},
+        grid: {{ color:'#1e1e3a' }} }},
+    }},
+  }},
+}});
+
+function updateChart(results) {{
+  const rev = [...results].reverse();
+  chart.data.labels = rev.map(r => fmt(r.captured_at || r.created_at));
+  chart.data.datasets[0].data = rev.map(r => r.confidence ?? 0);
+  chart.data.datasets[0].pointBackgroundColor = rev.map(r => r.is_ad ? 'rgba(239,68,68,.9)' : 'rgba(34,197,94,.6)');
+  chart.data.datasets[1].data = rev.map(() => 0.55);
+  chart.update('none');
+  txt('chTs', 'Akt. ' + new Date().toLocaleTimeString('sk-SK'));
+}}
+
+async function pollMonitor() {{
+  try {{
+    const r = await fetch('/v1/monitor/data?device_id=' + DID + '&limit=50', hdr());
+    if (!r.ok) return;
+    const d = await r.json();
+    const adA = d.state.ad_active;
+    const banner = document.getElementById('banner');
+    banner.className = 'banner ' + (adA ? 'is-ad' : 'is-prog');
+    txt('sIco', adA ? '🚨' : '📺');
+    txt('sLbl', adA ? 'REKLAMA' : 'PROGRAM');
+    if (adA) {{
+      txt('sSub', d.state.ad_since ? 'Trvá ' + ago(d.state.ad_since) + ' · od ' + fmt(d.state.ad_since) : 'Aktívna reklama');
+    }} else {{
+      const last = d.recent_results.find(x => x.confidence != null);
+      txt('sSub', last ? 'Posledná det. ' + ago(last.captured_at || last.created_at) : 'Žiadna reklama');
+    }}
+    const lc = d.recent_results[0]?.confidence;
+    txt('cConf', lc != null ? (lc*100).toFixed(0)+'%' : '—');
+    const t1h = d.stats.results_last_hour, a1h = d.stats.ad_detections_last_hour;
+    txt('cRate', t1h ? Math.round(a1h/t1h*100)+'%' : '—');
+    txt('cProc', d.rpi_status?.frames_processed ?? '—');
+    if (d.recent_results.length) updateChart(d.recent_results);
+    const rpi = d.rpi_status;
+    if (rpi) {{
+      const on = rpi.is_online;
+      document.getElementById('rpiDot').className = 'odot ' + (on ? 'on' : 'off');
+      txt('rpiTxt', on ? 'Online' : 'Offline');
+      txt('rCpu', rpi.cpu_percent != null ? rpi.cpu_percent.toFixed(0)+'%' : '—');
+      document.getElementById('rCpuB').style.width = (rpi.cpu_percent ?? 0) + '%';
+      txt('rMem', rpi.memory_percent != null ? rpi.memory_percent.toFixed(0)+'%' : '—');
+      document.getElementById('rMemB').style.width = (rpi.memory_percent ?? 0) + '%';
+      txt('rTemp', rpi.temperature_celsius != null ? rpi.temperature_celsius.toFixed(1) : '—');
+      document.getElementById('rTempB').style.width = Math.min(rpi.temperature_celsius ?? 0, 85)/85*100 + '%';
+      txt('rAds', rpi.ads_detected ?? '—');
+      document.getElementById('rAdsB').style.width = Math.min((rpi.ads_detected ?? 0)/200*100, 100) + '%';
+      txt('rCap', rpi.capture_running ? '✅ Beží' : '⬜ Stop');
+      txt('rDet', rpi.detect_running ? '✅ Beží' : '⬜ Stop');
+      txt('rHb', rpi.last_heartbeat ? ago(rpi.last_heartbeat) + ' ago' : '—');
+    }}
+  }} catch(e) {{ console.error('monitor', e); }}
+}}
+
+async function pollFrames() {{
+  try {{
+    const r = await fetch('/v1/history/frames?device_id=' + DID + '&filter=all&limit=10', hdr());
+    if (!r.ok) return;
+    const d = await r.json();
+    if (!d.items.length) return;
+    const f = d.items[0];
+    const src = '/frames/' + f.id + '.jpg?api_key=' + encodeURIComponent(AK);
+    const wrap = document.getElementById('fWrap');
+    const img = document.getElementById('fImg');
+    if (img.dataset.fid !== String(f.id)) {{
+      img.dataset.fid = String(f.id);
+      img.src = src;
+      img.style.display = 'block';
+      document.getElementById('fEmpty').style.display = 'none';
+      document.getElementById('fOv').style.display = 'flex';
+    }}
+    const cp = f.confidence != null ? (f.confidence*100).toFixed(1) : null;
+    const badge = document.getElementById('fBadge');
+    badge.textContent = f.is_ad ? 'REKLAMA' : 'PROGRAM';
+    badge.className = 'fbadge ' + (f.is_ad ? 'ad' : 'prog');
+    txt('fConf', cp ? cp + '%' : '');
+    document.getElementById('cFill').style.width = (f.confidence ?? 0)*100 + '%';
+    document.getElementById('cFill').className = 'cfill ' + (f.is_ad ? 'ad' : 'prog');
+    txt('fTs', fmt(f.captured_at));
+    const meta = (f.channel ? f.channel + ' · ' : '') + (cp ? 'p_ad=' + cp + '%' : '') + (f.detect_time_ms ? ' · ' + f.detect_time_ms + 'ms' : '');
+    txt('fMeta', meta);
+    wrap.dataset.src = src;
+    wrap.dataset.meta = meta;
+
+    // Thumbnails — build safely
+    const thumbs = document.getElementById('thumbs');
+    thumbs.textContent = '';
+    d.items.forEach(fr => {{
+      const fsrc = '/frames/' + fr.id + '.jpg?api_key=' + encodeURIComponent(AK);
+      const fcp = fr.confidence != null ? (fr.confidence*100).toFixed(0) + '%' : '';
+      const fmeta = (fr.channel || '') + ' · ' + fcp + ' · ' + fmt(fr.captured_at);
+      const div = document.createElement('div');
+      div.className = 'thumb';
+      div.onclick = () => openModal(fsrc, fmeta);
+      const im = document.createElement('img');
+      im.src = fsrc;
+      im.loading = 'lazy';
+      im.onerror = () => {{ im.style.display = 'none'; }};
+      const dot = document.createElement('span');
+      dot.className = 'tdot ' + (fr.is_ad ? 'ad' : 'prog');
+      const cl = document.createElement('span');
+      cl.className = 'tconf';
+      cl.textContent = fcp;
+      div.appendChild(im);
+      div.appendChild(dot);
+      div.appendChild(cl);
+      thumbs.appendChild(div);
+    }});
+    txt('thTs', 'Akt. ' + new Date().toLocaleTimeString('sk-SK'));
+  }} catch(e) {{ console.error('frames', e); }}
+}}
+
+async function pollEvents() {{
+  try {{
+    const r = await fetch('/v1/monitor/ad-events?device_id=' + DID + '&limit=20', hdr());
+    if (!r.ok) return;
+    const d = await r.json();
+    txt('cDur', d.avg_ad_duration_seconds != null ? dur(d.avg_ad_duration_seconds) : '—');
+    txt('evDur', 'Priem.: ' + (d.avg_ad_duration_seconds != null ? dur(d.avg_ad_duration_seconds) : '—'));
+    txt('evSw', 'Prepnutí: ' + d.switches_triggered);
+    const list = document.getElementById('evList');
+    list.textContent = '';
+    if (!d.events.length) {{
+      const p = document.createElement('div');
+      p.style.cssText = 'text-align:center;color:var(--mu);padding:20px;font-size:12px';
+      p.textContent = 'Žiadne udalosti';
+      list.appendChild(p);
+      return;
+    }}
+    d.events.forEach(e => {{
+      const row = document.createElement('div');
+      row.className = 'ev-row';
+      const isStart = e.event_type === 'ad_started';
+      const tEl = document.createElement('span');
+      tEl.className = 'ev-time';
+      tEl.textContent = fmt(e.created_at);
+      const ico = document.createElement('span');
+      ico.className = 'ev-ico ' + (isStart ? 'started' : 'ended');
+      ico.textContent = isStart ? '▶' : '■';
+      const info = document.createElement('div');
+      const title = document.createElement('div');
+      title.style.cssText = 'font-weight:600;font-size:12px';
+      title.textContent = isStart ? 'Reklama začala' : 'Reklama skončila';
+      const sub = document.createElement('div');
+      sub.style.cssText = 'color:var(--mu);font-size:11px';
+      sub.textContent = (e.channel || '') + (e.avg_confidence != null ? ' · conf=' + (e.avg_confidence*100).toFixed(0)+'%' : '');
+      info.appendChild(title);
+      info.appendChild(sub);
+      const durEl = document.createElement('span');
+      durEl.className = 'ev-dur';
+      durEl.textContent = e.duration_seconds != null ? dur(e.duration_seconds) : (isStart ? '▶ živá' : '');
+      if (isStart && !e.duration_seconds) durEl.style.color = '#f87171';
+      row.appendChild(tEl);
+      row.appendChild(ico);
+      row.appendChild(info);
+      row.appendChild(durEl);
+      list.appendChild(row);
+    }});
+  }} catch(e) {{ console.error('events', e); }}
+}}
+
+async function pollAccuracy() {{
+  try {{
+    const r = await fetch('/v1/monitor/accuracy?device_id=' + DID, hdr());
+    if (!r.ok) return;
+    const d = await r.json();
+    txt('accTot', d.total_labeled + ' labelovaných');
+    const body = document.getElementById('accBody');
+    body.textContent = '';
+    if (!d.total_labeled) {{
+      const p = document.createElement('div');
+      p.style.cssText = 'text-align:center;color:var(--mu);padding:12px;font-size:12px';
+      p.textContent = 'Žiadne labelované framy';
+      body.appendChild(p);
+      return;
+    }}
+    const rows = [
+      ['Celková presnosť', `<span class="tag ${{d.accuracy >= 90 ? 'tg' : d.accuracy >= 70 ? 'ty' : 'tr'}}">${{d.accuracy}}%</span>`],
+      ['Správne / Celkom', d.correct + ' / ' + d.total_labeled],
+      ['AI chyby (overrides)', `<span style="color:${{d.overrides > 0 ? '#f87171' : '#4ade80'}}">${{d.overrides}}</span>`],
+    ];
+    if (d.avg_confidence_on_wrong != null)
+      rows.push(['Conf pri chybách', (d.avg_confidence_on_wrong*100).toFixed(0) + '%']);
+    Object.entries(d.by_channel || {{}}).forEach(([ch, s]) => {{
+      rows.push([esc(ch), `<span class="tag ${{s.accuracy >= 90 ? 'tg' : 'ty'}}">${{s.accuracy}}%</span> (${{s.total}} fr.)`]);
+    }});
+    rows.forEach(([lbl, val]) => {{
+      const row = document.createElement('div');
+      row.className = 'acc-row';
+      const l = document.createElement('span');
+      l.className = 'acc-lbl';
+      l.textContent = lbl;
+      const v = document.createElement('span');
+      v.style.fontWeight = '600';
+      v.style.fontSize = '13px';
+      v.innerHTML = val;
+      row.appendChild(l);
+      row.appendChild(v);
+      body.appendChild(row);
+    }});
+  }} catch(e) {{ console.error('accuracy', e); }}
+}}
+
+function openModal(src, meta) {{
+  document.getElementById('mImg').src = src;
+  document.getElementById('mMeta').textContent = meta || '';
+  document.getElementById('modal').classList.add('open');
+}}
+function closeModal() {{ document.getElementById('modal').classList.remove('open'); }}
+document.addEventListener('keydown', e => {{ if (e.key === 'Escape') closeModal(); }});
+
+pollMonitor();
+pollFrames();
+pollEvents();
+pollAccuracy();
+setInterval(pollMonitor, 2000);
+setInterval(pollFrames, 3000);
+setInterval(pollEvents, 10000);
+setInterval(pollAccuracy, 30000);
+</script>
+<script>{NAV_STATUS_JS}</script>
+</body>
+</html>"""
