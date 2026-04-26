@@ -736,3 +736,20 @@ def get_controller_log(
             "To see detect errors: grep DETECT ~/CLIP/controller.log",
         ]
     }
+
+
+@router.get("/download-model")
+def download_model(
+    device_id: str = Depends(require_device_id),
+):
+    """Download the trained ad classifier model (classifier.pkl) from R2 storage."""
+    from app.storage.r2 import download_frame as r2_download
+    try:
+        data = r2_download("_model/classifier.pkl")
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Model not found in R2: {e}")
+    return Response(
+        content=data,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": 'attachment; filename="classifier.pkl"'},
+    )
