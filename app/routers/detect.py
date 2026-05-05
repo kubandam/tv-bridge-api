@@ -466,7 +466,7 @@ body{{padding:0;margin:0}}
             img.style.display = 'block';
             if (ph) ph.style.display = 'none';
           }};
-          img.src = '/v1/live-image.jpg?device_id=' + DEVICE_ID + '&t=' + Date.now();
+          img.src = '/live-image.jpg?api_key=' + API_KEY + '&device_id=' + DEVICE_ID + '&t=' + Date.now();
         }}
 
         var frameTs = document.getElementById('frameTs');

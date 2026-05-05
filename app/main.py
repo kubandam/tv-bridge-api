@@ -1,10 +1,12 @@
+import base64
 import logging
-from fastapi import FastAPI, Depends, Header, HTTPException
+from fastapi import FastAPI, Depends, Header, HTTPException, Query
+from fastapi.responses import Response
 from sqlmodel import Session
- 
+
 from app.db.engine import create_db_and_tables, get_session
 from app.settings import settings
-from app.routers.device import router as device_router
+from app.routers.device import router as device_router, _latest_images
 from app.routers.monitor import router as monitor_router, monitor_dashboard, live_dashboard
 from app.routers.rpi import router as rpi_router
 from app.routers.labeling import router as labeling_router, labeling_dashboard
@@ -105,3 +107,21 @@ app.get("/detect")(detect_dashboard)
 
 # Public frame image proxy (api_key in query param, for <img src> use)
 app.get("/frames/{frame_id}.jpg")(serve_frame_image)
+
+
+@app.get("/live-image.jpg")
+def serve_live_image(
+    api_key: str = Query(default=""),
+    device_id: str = Query(default="tv-1"),
+):
+    """Public live image endpoint — api_key as query param for <img src> use."""
+    if api_key != settings.api_key:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    if device_id not in _latest_images or not _latest_images[device_id].get("image_base64"):
+        raise HTTPException(status_code=404, detail="No image available")
+    image_bytes = base64.b64decode(_latest_images[device_id]["image_base64"])
+    return Response(
+        content=image_bytes,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
