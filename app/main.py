@@ -9,6 +9,7 @@ from app.routers.monitor import router as monitor_router, monitor_dashboard, liv
 from app.routers.rpi import router as rpi_router
 from app.routers.labeling import router as labeling_router, labeling_dashboard
 from app.routers.review import router as review_router, review_dashboard, admin_dashboard, serve_frame_image
+from app.routers.detect import router as detect_router, detect_dashboard
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,16 @@ app.get("/review")(review_dashboard)
 
 # Public admin dashboard
 app.get("/admin")(admin_dashboard)
+
+# Detect router (server-side CLIP inference)
+app.include_router(
+    detect_router,
+    prefix="/v1",
+    dependencies=[Depends(require_api_key)],
+)
+
+# Public detect dashboard
+app.get("/detect")(detect_dashboard)
 
 # Public frame image proxy (api_key in query param, for <img src> use)
 app.get("/frames/{frame_id}.jpg")(serve_frame_image)

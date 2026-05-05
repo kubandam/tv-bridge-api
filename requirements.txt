@@ -5,3 +5,12 @@ psycopg[binary]==3.2.10
 pydantic-settings==2.6.1
 python-dotenv==1.0.1
 boto3==1.35.99
+torch==2.1.2
+torchvision==0.16.2
+git+https://github.com/openai/CLIP.git
+scikit-learn==1.4.2
+Pillow>=10.0.0
+numpy>=1.24.0
+ftfy
+regex
+tqdm

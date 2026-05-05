@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(ls:*)",
+      "Bash(xargs cat:*)",
+      "Bash(python3:*)",
+      "Bash(source .venv/bin/activate)",
+      "Bash(uvicorn:*)",
+      "Bash(curl:*)",
+      "Bash(__NEW_LINE_091f280d2200a5e3__ echo \"\")",
+      "Bash(__NEW_LINE_091f280d2200a5e3__ echo \"=== Pulling all commands ===\")",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd auto-switch logic for ad detection\n\n- Add DeviceConfigDB model for fallback_channel and original_channel settings\n- Implement auto-switch in POST /ad-results: switch to fallback when ad starts, return to original when ad ends\n- Add new endpoints: GET/PUT /config, POST /config/current-channel\n- Mobile app can now configure fallback channel and report current channel for return after ads\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push:*)",
+      "Bash(npx expo start)",
+      "Bash(npx expo start:*)",
+      "Bash(__NEW_LINE_4d03dd139d9c1d29__ echo \"\")",
+      "Bash(__NEW_LINE_abe47d07474d4167__ echo \"\")",
+      "Bash(__NEW_LINE_da048bd91b100ed7__ echo \"\")",
+      "Bash(npx tsc:*)",
+      "Bash(pkill:*)",
+      "Bash(python -c:*)",
+      "Bash(git commit:*)",
+      "Bash(git reset:*)"
+    ]
+  }
+}

@@ -32,6 +32,7 @@ def nav_bar(api_key: str, device_id: str, active: str) -> str:
     pages = [
         ("monitor", "Monitor"),
         ("live", "Live"),
+        ("detect", "Detect"),
         ("review", "Review"),
         ("labeling", "Live Label"),
         ("admin", "Admin"),
