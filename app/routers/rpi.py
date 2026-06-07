@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 from collections import deque
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -146,7 +146,10 @@ def get_status(
     is_online = False
     if status.last_heartbeat:
         timeout = timedelta(seconds=settings.heartbeat_timeout_seconds)
-        is_online = (now - status.last_heartbeat) < timeout
+        last_hb = status.last_heartbeat
+        if last_hb.tzinfo is None:
+            last_hb = last_hb.replace(tzinfo=timezone.utc)
+        is_online = (now - last_hb) < timeout
 
     # Update online status if changed
     if status.is_online != is_online:
